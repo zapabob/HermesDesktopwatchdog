@@ -1,0 +1,25 @@
+# Binaries / build
+/dist/
+*.exe
+*.exe~
+*.bak-*
+
+# Go
+/vendor/
+*.test
+*.out
+coverage.out
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*_authkey*
