@@ -1,96 +1,125 @@
-# Hermes Go Watchdog（Windows）
+# Hermes Desktop Watchdog
 
-Hermes Desktop（`Hermes.exe`）と Desktop が spawn する `hermes serve` バックエンドを**相互監視**する独立プロセスです。  
-**Hermes Agent の plugin / tool / skill / MCP / cron には一切登録しません。**
+An independent Go lifecycle manager for Hermes Agent Desktop and backend, focused on health supervision, controlled recovery, orphan cleanup, and Windows process hygiene.
 
-## 隔離（AI から制御不可）
+`	ext
+Hermes Agent
+    ↕ health / lifecycle contract
+Hermes Desktop Watchdog
+`
 
-| 項目 | 内容 |
-|------|------|
-| プロセス | Hermes Python/Electron とは別バイナリ |
-| 設定 | `%LOCALAPPDATA%\HermesWatchdog\`（ロック・状態 JSON） |
-| ログ | `%HERMES_HOME%\logs\hermes-go-watchdog.log` |
-| 変更 API | `HERMES_WATCHDOG_ADMIN_TOKEN` 必須（未設定なら **403**） |
-| 読取 API | `GET /health`, `GET /api/status`（ローカル / tailnet） |
+Hermes Desktop Watchdog is an independent, community-maintained lifecycle manager for NousResearch Hermes Agent Desktop and its backend.
 
-## ビルド
+It is not an official NousResearch component, Hermes plugin, MCP server, skill, or cron provider.
 
-```powershell
+---
+
+## 🎨 System Overview & Architecture
+
+For a quick visual overview of the watchdog's operation, refer to the diagrams below:
+
+### System Mascot Infographic
+![Hermes Go Watchdog Infographic](_docs/hermes_watchdog_infographic.jpg)
+
+### Architecture Diagram
+![Hermes Go Watchdog Architecture Diagram](_docs/watchdog_architecture_diagram.jpg)
+
+---
+
+## Key Features
+
+- **Desktop and backend health supervision:** Actively monitors both Hermes.exe (Desktop electron app) and hermes serve (Python backend) to ensure continuous operability.
+- **Single restart authority:** The watchdog acts as the sole decider for service restarts, preventing split-brain conditions or restart loops where both systems try to restart each other.
+- **Crash-loop backoff:** Implements progressive cooldown periods and moves to StateFailed if the service remains unrecoverable after multiple consecutive attempts.
+- **Orphan process cleanup:** Reaps orphaned Python backends, conhost instances, or dangling MCP subprocesses on Windows.
+- **Warm-start lifecycle preparation:** Manages early server spawning (prewarm-backend) to allow near-instantaneous Desktop reconnection without cold-start delays.
+- **Windows-first process hygiene:** Built to handle Windows-specific behaviors like process trees, PID reuse, and monotonic wakeups from machine sleep/resume.
+
+---
+
+## Implemented vs Planned Scope
+
+### Implemented
+- Mutual health observation (/health, /api/status)
+- Watchdog-owned restart decisions (sole authority)
+- Crash-loop recovery and fail counts
+- Orphan cleanup and process harvesting on Windows
+- Pre-warm backend and desktop-backend.json manifest generation
+
+### Planned
+- Full backend drain/checkpoint protocol (ADR P4)
+- Renderer-only process tree recovery (ADR P5)
+- Windows Job Object ownership for child sub-trees (ADR P5)
+
+---
+
+## Safety Model & Security
+
+For details on our threat mitigation design, please read [SECURITY.md](SECURITY.md). Key safety rules enforced by design:
+- **Loopback only:** The HTTP API listens only on localhost (127.0.0.1:9920) by default.
+- **Admin token authorization:** All mutation endpoints require a valid HERMES_WATCHDOG_ADMIN_TOKEN via Bearer token or header authentication.
+- **No arbitrary command execution:** Commands are strictly mapped to an allowlist (e.g., executing the specified python binary and package).
+- **Executable path pinning:** Relaunches utilize fixed, detected, or verified executable targets.
+- **Exclusion of reserved ports:** The watchdog will never bind or claim ports reserved for Hermes stack operations.
+
+---
+
+## Tested Versions
+
+- **Hermes Agent:** 0.18.2 (main commit: 54f70c2663375ff5df5fb6c1c6d0ef286b1d12b9)
+- **OS:** Windows 10 / 11 (WSL2 usage is *not tested*)
+- **Watchdog:** Go 1.25.0 / 1.26.5 (architecture: md64)
+
+---
+
+## Building the Watchdog
+
+Ensure Go (1.25+) is installed. Run the following script:
+
+`powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Build-HermesGoWatchdog.ps1
-```
+`
 
-成果物: `scripts\windows\watchdog-go\dist\hermes-watchdog.exe`
+The resulting binary will be saved to scripts\windows\watchdog-go\dist\hermes-watchdog.exe.
 
-## 起動
+---
 
-```powershell
-# 環境変数（例）
-$env:HERMES_WATCHDOG_ADMIN_TOKEN = "<operator-secret>"
-$env:HERMES_WATCHDOG_TS_AUTHKEY = "<ts-authkey>"   # 任意: tsnet 有効化
+## Running the Watchdog
+
+Run the start script to launch the watchdog detached:
+
+`powershell
+# Set optional configuration token
+ = "your-secure-operator-token"
 
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Start-HermesGoWatchdog.ps1
-```
+`
 
-### フラグ（Start スクリプト経由）
+### CLI Parameters
 
-| フラグ | 既定 | 説明 |
-|--------|------|------|
-| `-IntervalSec` | 20 | 監視周期 |
-| `-FailThreshold` | 2 | backend 連続失敗で Desktop 再起動 |
-| `-Once` | off | 1 周期だけ実行して終了 |
-| `-NoTsnet` | off | tsnet を強制 OFF |
-| `-Listen` | 127.0.0.1:9920 | ローカル HTTP |
+| Flag | Default | Description |
+|------|---------|-------------|
+| -IntervalSec | 20 | Supervision poll interval |
+| -FailThreshold | 2 | Allowed consecutive backend failures before Desktop restart |
+| -Once | off | Runs a single supervision loop and exits |
+| -NoTsnet | off | Force disables Tailscale 	snet binding |
+| -Listen | 127.0.0.1:9920 | Local HTTP endpoint address |
 
-## Tailscale（tsnet）
-
-1. Tailscale 管理画面で **auth key** を発行（推奨: reusable + タグ付き）
-2. 環境変数 `HERMES_WATCHDOG_TS_AUTHKEY` または `TS_AUTHKEY` に設定（**リポジトリにコミットしない**）
-3. 起動すると tailnet 上で `hermes-watchdog` として `:443` で待受
-4. 他ノードから: `curl -k https://hermes-watchdog/health`（MagicDNS / ホスト名）
+---
 
 ## HTTP API
 
-| Method | Path | 認証 | 説明 |
-|--------|------|------|------|
-| GET | `/health` | 不要 | 生存確認 |
-| GET | `/api/status` | 不要 | ウォッチドッグ状態 JSON |
-| POST | `/api/v1/pause` | Admin | 監視一時停止 |
-| POST | `/api/v1/resume` | Admin | 監視再開 |
-| POST | `/api/v1/cycle` | Admin | 即時 1 周期 |
-| POST | `/api/v1/stop` | Admin | Graceful stop |
+| Method | Path | Authentication | Description |
+|--------|------|----------------|-------------|
+| GET | /health | None | Returns basic watchdog liveness status |
+| GET | /api/status | None | Returns full health status JSON |
+| POST | /api/v1/pause | Admin Token | Pauses watchdog loop supervision |
+| POST | /api/v1/resume | Admin Token | Resumes watchdog loop supervision |
+| POST | /api/v1/cycle | Admin Token | Forces a single immediate check cycle |
+| POST | /api/v1/stop | Admin Token | Gracefully stops the watchdog process |
 
-Admin 認証: `Authorization: Bearer <token>` または `X-Admin-Token: <token>`
+---
 
-## 監視ロジック
+## License
 
-1. **起動時 prewarm** — リポジトリ `.venv` で `hermes serve --port 0` を先に立ち上げ、`%LOCALAPPDATA%\HermesWatchdog\desktop-backend.json` に URL/token/port を公開
-2. `Hermes.exe` 不在 → 管理 backend は reaping しない → Desktop 起動（manifest があれば `HERMES_DESKTOP_REMOTE_*` も注入）
-3. Desktop 生存 + backend 不在 → **Electron 再起動の前に** managed serve を起動/復旧
-4. 連続失敗が `-FailThreshold` 以上 → Desktop 強制再起動
-5. 予約 ops ポート (9120/8787/…) は backend 判定・reap 対象外（従来どおり）
-
-### Desktop ショートカット
-
-パッケージ `Hermes.exe` 直起動は `HERMES_DESKTOP_*` を付けない。Go watchdog が prewarm していれば Desktop は `desktop-backend.json` を読んで **15s 以内** に既存 serve へ接続する（`apps/desktop/electron/watchdog-backend.ts`）。
-
-## 追加フラグ（exe / Start スクリプト）
-
-| フラグ | 既定 | 説明 |
-|--------|------|------|
-| `-prewarm-backend` | on | serve の prewarm / 常時監督 |
-| `-managed-backend-port` | 9118 | watchdog 管理の固定 serve ポート（9120/8787/9119 とは別） |
-| `-backend-start-timeout` | 120 | `/api/status` 待ち (秒) |
-| `-backend-ready-timeout` | 45 | `/api/status` 待ち (秒) |
-
-## 監視ロジック（旧 PowerShell 版との差分）
-
-## 停止
-
-- タスクマネージャで `hermes-watchdog.exe` を終了
-- または Admin API: `POST /api/v1/stop` + Bearer token
-- ロック: `%LOCALAPPDATA%\HermesWatchdog\watchdog.lock`
-
-## スタック再起動との関係
-
-`restart-hermes-stack.ps1 -StartGoWatchdog` で**明示指定時のみ**起動（既定 OFF）。  
-Hermes Agent からは到達不可。
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
