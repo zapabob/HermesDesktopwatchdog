@@ -1,4 +1,4 @@
-# Build hermes-watchdog.exe (Go + optional tsnet)
+﻿# Build hermes-watchdog.exe (Go + optional tsnet)
 param(
     [switch]$SkipTest,
     [string]$OutputName = "hermes-watchdog.exe"
@@ -34,7 +34,7 @@ try {
 
     Write-Progress -Activity "Build Hermes Go Watchdog" -Status "go build" -PercentComplete 80
     Write-Host "[3/3] go build"
-    go build -trimpath -ldflags "-s -w" -o $OutPath .
+    go build -buildvcs=false -trimpath -ldflags "-s -w" -o $OutPath .
     if ($LASTEXITCODE -ne 0) { throw "go build failed" }
 
     Write-Progress -Activity "Build Hermes Go Watchdog" -Completed -Status "done"
