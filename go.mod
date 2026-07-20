@@ -1,4 +1,4 @@
-module github.com/zapabob/HermesDesktopwatchdog
+module github.com/nousresearch/hermes-agent/scripts/windows/watchdog-go
 
 go 1.25.0
 
@@ -40,8 +40,7 @@ require (
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/nftables v0.2.1-0.20240414091927-5e242ec57806 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/csrf v1.7.2 // indirect
-	github.com/gorilla/securecookie v1.1.2 // indirect
+	github.com/gorilla/csrf v1.7.4 // indirect
 	github.com/hdevalence/ed25519consensus v0.2.0 // indirect
 	github.com/illarion/gonotify/v2 v2.0.3 // indirect
 	github.com/insomniacslk/dhcp v0.0.0-20231206064809-8c70d406f6d2 // indirect
@@ -88,3 +87,8 @@ require (
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
 	gvisor.dev/gvisor v0.0.0-20240722211153-64c016c92987 // indirect
 )
+
+// CVE-2025-47909: github.com/gorilla/csrf has no patched upstream release
+// (<=1.7.3 affected). Resolve imports via filippo.io/csrf/gorilla drop-in
+// vendored under third_party, and advertise v1.7.4 (outside advisory range).
+replace github.com/gorilla/csrf => ./third_party/gorilla-csrf
