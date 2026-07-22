@@ -29,11 +29,14 @@ Loopback-only by default + admin token for mutations. Details: [SECURITY.md](SEC
 
 ## Dig deeper
 
+**Architecture (diagrams + components):** [`_docs/ARCHITECTURE.md`](_docs/ARCHITECTURE.md)
+
 | Doc | Why |
 |-----|-----|
+| [`_docs/OPERATOR.md`](_docs/OPERATOR.md) | Short operator runbook |
 | [`_docs/ADR-2026-07-21_hermes-watchdog-lifecycle-manager.md`](_docs/ADR-2026-07-21_hermes-watchdog-lifecycle-manager.md) | Lifecycle ADR |
 | [`_docs/IPC-CONTRACT-P3.md`](_docs/IPC-CONTRACT-P3.md) | P3 report-only IPC contract |
-| [`_docs/`](_docs/) | Phase implementation logs + diagrams |
+| [`_docs/`](_docs/) | Phase implementation logs |
 
 ```powershell
 go test ./... -count=1
