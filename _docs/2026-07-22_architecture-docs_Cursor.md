@@ -68,6 +68,14 @@ Get-Date -Format "yyyy-MM-dd HH:mm:ss K"
 2. hermes-agent 側で IPC-CONTRACT-P3 adapter
 3. P4 warm-start 設計着手時は ARCHITECTURE §9 を更新
 
+## Commit / push
+
+| Item | Value |
+|------|-------|
+| Commit | `a1be5e7510dfc40f8bd1ab5fe5a227a8dfee6076` |
+| Message | `docs: add architecture and operator guides for P1-P3` |
+| Branch | `main` → `origin/main` |
+
 ## Return checklist
 
 - Paths: `_docs/ARCHITECTURE.md`, `_docs/OPERATOR.md`, README link, this log
