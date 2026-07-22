@@ -4,6 +4,12 @@ Operator-only **Windows Go process** that keeps Hermes Desktop (`Hermes.exe`) an
 
 **Not** a Hermes plugin, MCP server, skill, cron, or official NousResearch component.
 
+## Site & download
+
+- **GitHub Pages:** [https://zapabob.github.io/HermesDesktopwatchdog/](https://zapabob.github.io/HermesDesktopwatchdog/)
+- **Release (v1.0.0):** [hermes-watchdog-windows-amd64-v1.0.0.tar.gz](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.0.0/hermes-watchdog-windows-amd64-v1.0.0.tar.gz)
+- **All releases:** [github.com/zapabob/HermesDesktopwatchdog/releases](https://github.com/zapabob/HermesDesktopwatchdog/releases)
+
 ## Build & start
 
 ```powershell
