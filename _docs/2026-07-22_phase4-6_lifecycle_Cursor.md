@@ -68,6 +68,11 @@ Invoke-RestMethod http://127.0.0.1:9920/api/status
 | `/api/status` warmStart / updateSuppress / jobObject / recovery | **PASS** fields present |
 | ForceRestart | **PASS** watchdogPid=7000 |
 
+## Git
+
+- Commit: `901c605326d5bc7fcbab3c81639dae3e30c39afa`
+- Branch: `main` (pushed to origin)
+
 ## Hermes-dependent residual gaps
 
 1. Drain / stop-accepting の実効（Hermes が status を見て止まる必要あり）
