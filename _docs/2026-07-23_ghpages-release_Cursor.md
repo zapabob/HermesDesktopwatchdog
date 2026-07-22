@@ -71,3 +71,12 @@ git push origin main
 - Pages 公開後にモバイル幅で目視確認
 - 次回バージョンでは `docs/site.js` の VERSION 定数を自動化
 - Dependabot / CI で release packaging を任意自動化
+
+## Deploy verification (post-push)
+
+- Pages: https://zapabob.github.io/HermesDesktopwatchdog/ — HTTP 200, brand+CTA present, build status `built`
+- Release: https://github.com/zapabob/HermesDesktopwatchdog/releases/tag/v1.0.0
+- Asset HEAD: HTTP 200, Length=8477214
+- SHA256: `c086a9d526f7234989c88f0137c41696f20a3ad18c6e48ff824dc218588fe448`
+- Commit: `a86eecd`
+
