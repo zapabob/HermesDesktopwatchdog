@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 type HTTPServer struct {
@@ -31,6 +33,7 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/resume", s.handleResume)
 	mux.HandleFunc("/api/v1/cycle", s.handleCycle)
 	mux.HandleFunc("/api/v1/stop", s.handleStop)
+	mux.HandleFunc("/api/v1/update-suppress", s.handleUpdateSuppress)
 	return mux
 }
 
@@ -96,6 +99,55 @@ func (s *HTTPServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"stopping": "true"})
 	go s.shutdown()
+}
+
+func (s *HTTPServer) handleUpdateSuppress(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if r.Method == http.MethodGet {
+		if s.wd.updateGate == nil {
+			writeJSON(w, http.StatusOK, UpdateSuppressSnapshot{})
+			return
+		}
+		writeJSON(w, http.StatusOK, s.wd.updateGate.Snapshot())
+		return
+	}
+	var req updateSuppressRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if s.wd.updateGate == nil {
+		s.wd.updateGate = NewUpdateSuppressGate(s.cfg.DataDir, s.wd.now)
+	}
+	ttl := time.Duration(req.TTLSec) * time.Second
+	if req.Suppress && ttl <= 0 && s.cfg.UpdateSuppressTTL > 0 {
+		ttl = s.cfg.UpdateSuppressTTL
+	}
+	s.wd.updateGate.SetAPI(req.Suppress, ttl)
+	if req.WriteFile && req.Suppress {
+		_ = s.wd.updateGate.WriteLockFile(normalizeUpdateReason(req.Reason))
+	}
+	if req.ClearFile || (!req.Suppress && req.ClearFile) {
+		_ = s.wd.updateGate.ClearLockFile()
+	}
+	if !req.Suppress {
+		// Clearing API suppress; optionally clear lock file when explicit.
+		if req.ClearFile {
+			_ = s.wd.updateGate.ClearLockFile()
+		}
+	}
+	s.wd.logger.EmitEvent(s.cfg.EventsPath, RestartEvent{
+		Event:  "update_suppress",
+		Reason: normalizeUpdateReason(req.Reason),
+		Detail: fmt.Sprintf("suppress=%v ttlSec=%d", req.Suppress, req.TTLSec),
+	})
+	writeJSON(w, http.StatusOK, s.wd.updateGate.Snapshot())
 }
 
 func (s *HTTPServer) handleHeartbeat(w http.ResponseWriter, r *http.Request) {

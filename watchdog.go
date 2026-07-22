@@ -39,6 +39,11 @@ type WatchdogState struct {
 	IPCPipe                 string                    `json:"ipcPipe,omitempty"`
 	ReportOnlyContract      bool                      `json:"reportOnlyContract"`
 	SoleRestartAuthority    bool                      `json:"soleRestartAuthority"`
+	UpdateSuppress          bool                      `json:"updateSuppress"`
+	UpdateSuppressInfo      UpdateSuppressSnapshot    `json:"updateSuppressInfo,omitempty"`
+	WarmStart               WarmStartSnapshot         `json:"warmStart,omitempty"`
+	JobObject               JobObjectSnapshot         `json:"jobObject,omitempty"`
+	Recovery                map[string]any            `json:"recovery,omitempty"`
 	PackagedExe             string                    `json:"packagedExe,omitempty"`
 	ListenAddr              string                    `json:"listenAddr,omitempty"`
 	TsnetHostname           string                    `json:"tsnetHostname,omitempty"`
@@ -59,6 +64,9 @@ type Watchdog struct {
 	heartbeats    *HeartbeatRegistry
 	anomalies     *AnomalyRegistry
 	nonces        *NonceCache
+	warmStart     *WarmStartSequencer
+	updateGate    *UpdateSuppressGate
+	recovery      *RecoveryPolicy
 	lastHealth    BackendHealth
 	lastState     WatchdogState
 	nowFn         func() time.Time
@@ -78,7 +86,7 @@ func NewWatchdog(cfg Config, logger *Logger) *Watchdog {
 	if pipeName == "" {
 		pipeName = DefaultIPCPipeName
 	}
-	return &Watchdog{
+	wd := &Watchdog{
 		cfg:          cfg,
 		logger:       logger,
 		back:         NewBackendManager(cfg, logger),
@@ -88,6 +96,8 @@ func NewWatchdog(cfg Config, logger *Logger) *Watchdog {
 		heartbeats:   NewHeartbeatRegistry(hbTimeout, nowFn),
 		anomalies:    NewAnomalyRegistry(cfg.AnomalyMergeWindow, nowFn),
 		nonces:       NewNonceCache(10*time.Minute, nowFn),
+		updateGate:   NewUpdateSuppressGate(cfg.DataDir, nowFn),
+		recovery:     NewRecoveryPolicy(),
 		nowFn:        nowFn,
 		lastState: WatchdogState{
 			WatchdogPID:          os.Getpid(),
@@ -107,7 +117,73 @@ func NewWatchdog(cfg Config, logger *Logger) *Watchdog {
 				"hermes-backend": {Epoch: 1},
 				"hermes-desktop": {Epoch: 1},
 			},
+			WarmStart: WarmStartSnapshot{ResumeTraffic: true},
 		},
+	}
+	wd.warmStart = NewWarmStartSequencer(cfg, logger, wd.defaultWarmStartHooks())
+	return wd
+}
+
+func (w *Watchdog) defaultWarmStartHooks() WarmStartHooks {
+	return WarmStartHooks{
+		Now: w.now,
+		ActiveRuns: func() int {
+			if w.heartbeats == nil {
+				return 0
+			}
+			return w.heartbeats.LastActiveRuns("hermes-backend")
+		},
+		CheckpointAcked: func() bool { return false }, // Hermes ack lands in a later adapter PR
+		StopBackend: func() error {
+			w.back.mu.Lock()
+			defer w.back.mu.Unlock()
+			w.back.stopLocked()
+			return nil
+		},
+		StartBackend: func() (uint32, int, error) {
+			info, err := w.back.EnsureHealthy()
+			if err != nil {
+				return 0, 0, err
+			}
+			if info == nil {
+				return 0, 0, fmt.Errorf("ensure healthy returned nil")
+			}
+			return info.PID, info.Port, nil
+		},
+		WaitReady: func(timeout time.Duration) error {
+			deadline := w.now().Add(timeout)
+			for w.now().Before(deadline) {
+				if info := w.back.currentHealthy(); info != nil && info.Health.Ready {
+					return nil
+				}
+				port := w.cfg.ManagedBackendPort
+				if port <= 0 {
+					port = DefaultManagedBackendPort
+				}
+				if quickBackendReady(port) {
+					return nil
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+			return fmt.Errorf("backend not ready within %s", timeout)
+		},
+		NotifyDesktop: func(port int) error {
+			w.back.mu.Lock()
+			defer w.back.mu.Unlock()
+			pid := w.back.pid
+			if w.back.token == "" {
+				tok, err := generateSessionToken()
+				if err != nil {
+					return err
+				}
+				w.back.token = tok
+			}
+			if port > 0 {
+				w.back.port = port
+			}
+			return w.back.publishManifestLocked(w.back.port, pid)
+		},
+		Sleep: time.Sleep,
 	}
 }
 
@@ -188,6 +264,20 @@ func (w *Watchdog) State() WatchdogState {
 	}
 	if w.anomalies != nil {
 		st.RecentAnomalies = w.anomalies.Recent()
+	}
+	if w.warmStart != nil {
+		st.WarmStart = w.warmStart.Snapshot()
+	}
+	if w.updateGate != nil {
+		us := w.updateGate.Snapshot()
+		st.UpdateSuppress = us.Active
+		st.UpdateSuppressInfo = us
+	}
+	if w.back != nil {
+		st.JobObject = w.back.JobSnapshot()
+	}
+	if w.recovery != nil {
+		st.Recovery = w.recovery.Snapshot()
 	}
 	return st
 }
@@ -312,6 +402,20 @@ func (w *Watchdog) saveState(result cycleResult, backend *backendInfo) {
 		TsnetHostname:        w.cfg.TsnetHostname,
 		TsnetEnabled:         w.cfg.EnableTsnet && w.cfg.TsAuthKey != "",
 	}
+	if w.warmStart != nil {
+		w.lastState.WarmStart = w.warmStart.Snapshot()
+	}
+	if w.updateGate != nil {
+		us := w.updateGate.Snapshot()
+		w.lastState.UpdateSuppress = us.Active
+		w.lastState.UpdateSuppressInfo = us
+	}
+	if w.back != nil {
+		w.lastState.JobObject = w.back.JobSnapshot()
+	}
+	if w.recovery != nil {
+		w.lastState.Recovery = w.recovery.Snapshot()
+	}
 	raw, err := json.MarshalIndent(w.lastState, "", "  ")
 	if err != nil {
 		return
@@ -324,6 +428,32 @@ func (w *Watchdog) RunCycle() cycleResult {
 		res := cycleResult{Desktop: "paused", Backend: "paused"}
 		w.saveState(res, nil)
 		return res
+	}
+
+	if w.updateGate != nil {
+		if on, src, detail := w.updateGate.Active(); on {
+			w.logger.Infof("update suppress active source=%s %s — skip auto Start*/WarmRestart", src, detail)
+			desktop, derr := getDesktopProcesses()
+			desktopUp := derr == nil && len(desktop) > 0
+			backend := w.findAnyHealthyBackend()
+			res := cycleResult{
+				Desktop: map[bool]string{true: "up", false: "down"}[desktopUp],
+				Backend: "update_suppressed",
+			}
+			if backend != nil {
+				res.BackendPID = backend.PID
+				res.BackendPort = backend.Port
+				if w.backendReady(backend) {
+					res.Backend = "up"
+				} else if w.backendLive(backend) {
+					res.Backend = "degraded"
+				} else {
+					res.Backend = "down"
+				}
+			}
+			w.saveState(res, backend)
+			return res
+		}
 	}
 
 	now := w.now()
@@ -457,6 +587,18 @@ func (w *Watchdog) RunCycle() cycleResult {
 			w.logger.Infof("Desktop UP but backend still DOWN (fail=%d/%d backoff=%s)", fails, w.cfg.FailThreshold, backoff)
 			// Desktop restart is last resort AFTER backend recovery failed enough times.
 			if fails >= w.cfg.FailThreshold {
+				if w.recovery != nil && w.recovery.ShouldSkipFullDesktopRestart() {
+					w.logger.Infof("renderer-only policy active — skip full Desktop restart (T04 stub)")
+					w.logger.EmitEvent(w.cfg.EventsPath, RestartEvent{
+						Event:   "renderer_only_skip",
+						Service: "desktop",
+						Reason:  "backend_recovery_exhausted_but_renderer_only",
+						Detail:  rendererOnlyLimitationDetail("sticky"),
+					})
+					res := cycleResult{Desktop: "up", Backend: "down"}
+					w.saveState(res, nil)
+					return res
+				}
 				w.logger.Infof("backend recovery exhausted — Desktop last-resort restart")
 				w.setDesktopState(StateStopping)
 				w.logger.EmitEvent(w.cfg.EventsPath, RestartEvent{
@@ -466,9 +608,12 @@ func (w *Watchdog) RunCycle() cycleResult {
 					Attempt:   fails,
 					FromState: StateReady.String(),
 					ToState:   StateStarting.String(),
-					Command:   string(CommandWarmRestart),
+					Command:   string(CommandStopDesktop) + "+" + string(CommandStartDesktop),
 				})
-				w.runAllowlistedCommand(CommandWarmRestart, "backend_recovery_exhausted")
+				// Full Desktop relaunch — distinct from backend warm_restart (P4).
+				w.runAllowlistedCommand(CommandStopDesktop, "backend_recovery_exhausted")
+				_ = w.runAllowlistedCommand(CommandStartBackend, "pre_desktop_relaunch")
+				w.runAllowlistedCommand(CommandStartDesktop, "backend_recovery_exhausted")
 				w.mu.Lock()
 				w.failCount = 0
 				w.mu.Unlock()

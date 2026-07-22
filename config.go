@@ -37,6 +37,9 @@ type Config struct {
 	EnableIPCPipe          bool
 	IPCPipeName            string
 	AnomalyMergeWindow     time.Duration
+	WarmDrainTimeout       time.Duration
+	WarmCheckpointWait     time.Duration
+	UpdateSuppressTTL      time.Duration // default TTL when API omits ttlSec
 }
 
 func defaultHermesHome() string {

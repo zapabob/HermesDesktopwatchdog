@@ -20,7 +20,7 @@ Invoke-RestMethod http://127.0.0.1:9920/health
 Invoke-RestMethod http://127.0.0.1:9920/api/status
 ```
 
-Useful status fields: `soleRestartAuthority`, `reportOnlyContract`, `desktopService.state`, `backendService.state`, `restart.failed`, `leases`, `recentAnomalies`, `ipcPipe`.
+Useful status fields: `soleRestartAuthority`, `reportOnlyContract`, `desktopService.state`, `backendService.state`, `restart.failed`, `leases`, `recentAnomalies`, `ipcPipe`, `warmStart`, `updateSuppress`, `jobObject`, `recovery`.
 
 ## Common ops
 
@@ -29,6 +29,9 @@ Useful status fields: `soleRestartAuthority`, `reportOnlyContract`, `desktopServ
 | Pause auto-recovery | `POST /api/v1/pause` + admin token |
 | Resume (clears Failed path for recovery) | `POST /api/v1/resume` |
 | One recovery cycle | `POST /api/v1/cycle` |
+| Suppress restart during update (P6) | `POST /api/v1/update-suppress` body `{"suppress":true,"ttlSec":600}` or set env / write `update.lock` |
+| Clear update suppress | `POST /api/v1/update-suppress` `{"suppress":false,"clearFile":true}` |
+| Warm restart backend (P4) | `POST /api/v1/command` allowlisted `warm_restart` |
 | Stop watchdog process | `POST /api/v1/stop` |
 | Allowlisted command | `POST /api/v1/command` with nonce + allowlist |
 
@@ -39,7 +42,7 @@ Header: `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
 | What | Where |
 |------|-------|
 | Binary | `dist\hermes-watchdog.exe` (gitignored) |
-| Lock / state / events | `%LOCALAPPDATA%\HermesWatchdog\` |
+| Lock / state / events / update.lock | `%LOCALAPPDATA%\HermesWatchdog\` |
 | Log | `%USERPROFILE%\.hermes\logs\hermes-go-watchdog.log` |
 | Pipe | `\\.\pipe\hermes-watchdog` |
 
@@ -50,4 +53,4 @@ Header: `Authorization: Bearer <token>` or `X-Admin-Token: <token>`.
 - Commit `.env`, tokens, or `dist\*.exe`
 - Expect Desktop/Backend to restart each other (report-only contract)
 
-Desktop adapter contract (for hermes-agent maintainers): [`IPC-CONTRACT-P3.md`](IPC-CONTRACT-P3.md).
+Desktop adapter contract (for hermes-agent maintainers): [`IPC-CONTRACT-P3.md`](IPC-CONTRACT-P3.md). Warm-start: [`WARM-START-CONTRACT.md`](WARM-START-CONTRACT.md).

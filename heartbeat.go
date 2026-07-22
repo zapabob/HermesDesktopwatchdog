@@ -48,6 +48,7 @@ type heartbeatRecord struct {
 	epoch      int64
 	state      string
 	pid        uint32
+	activeRuns int
 	receivedAt time.Time // watchdog monotonic wall (time.Since safe for sleep/resume when using same clock)
 }
 
@@ -162,6 +163,7 @@ func (r *HeartbeatRegistry) Ingest(env HeartbeatEnvelope) error {
 		epoch:      epoch,
 		state:      state,
 		pid:        env.Payload.PID,
+		activeRuns: env.Payload.ActiveRuns,
 		receivedAt: r.nowFn(),
 	}
 	return nil
@@ -222,4 +224,16 @@ func (r *HeartbeatRegistry) AllSnapshots() map[string]LeaseSnapshot {
 		"hermes-backend": r.Snapshot("hermes-backend"),
 		"hermes-desktop": r.Snapshot("hermes-desktop"),
 	}
+}
+
+// LastActiveRuns returns the most recently reported active_runs for warm-start drain.
+func (r *HeartbeatRegistry) LastActiveRuns(service string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	service = normalizeService(service)
+	rec, ok := r.records[service]
+	if !ok {
+		return 0
+	}
+	return rec.activeRuns
 }

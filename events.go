@@ -17,6 +17,7 @@ type RestartEvent struct {
 	Attempt      int    `json:"attempt,omitempty"`
 	BackoffMS    int64  `json:"backoff_ms,omitempty"`
 	WarmStart    bool   `json:"warm_start,omitempty"`
+	Outcome      string `json:"outcome,omitempty"` // success|interrupted|failed
 	FromState    string `json:"from_state,omitempty"`
 	ToState      string `json:"to_state,omitempty"`
 	Command      string `json:"command,omitempty"`

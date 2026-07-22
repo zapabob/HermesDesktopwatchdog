@@ -46,6 +46,9 @@ func main() {
 	ipcPipe := flag.String("ipc-pipe", DefaultIPCPipeName, "Windows Named Pipe path for P3 IPC (empty disables)")
 	noIPCPipe := flag.Bool("no-ipc-pipe", false, "Disable Named Pipe IPC listener")
 	anomalyMergeSec := flag.Int("anomaly-merge-sec", 5, "Window to merge dual Desktop+Backend anomaly reports (T12)")
+	warmDrainSec := flag.Int("warm-drain-sec", 15, "Warm-start grace period for active runs before force stop")
+	warmCheckpointSec := flag.Int("warm-checkpoint-sec", 5, "Seconds to wait for Hermes checkpoint ack during warm start")
+	updateSuppressTTLSec := flag.Int("update-suppress-ttl-sec", 0, "Default TTL seconds for API update-suppress when ttlSec omitted (0=no expire)")
 	once := flag.Bool("once", false, "Run a single watchdog cycle then exit")
 	noHTTP := flag.Bool("no-http", false, "Disable HTTP control plane (watch loop only)")
 	flag.Parse()
@@ -101,6 +104,9 @@ func main() {
 		EnableIPCPipe:      !*noIPCPipe && strings.TrimSpace(*ipcPipe) != "",
 		IPCPipeName:        strings.TrimSpace(*ipcPipe),
 		AnomalyMergeWindow: time.Duration(*anomalyMergeSec) * time.Second,
+		WarmDrainTimeout:   time.Duration(*warmDrainSec) * time.Second,
+		WarmCheckpointWait: time.Duration(*warmCheckpointSec) * time.Second,
+		UpdateSuppressTTL:  time.Duration(*updateSuppressTTLSec) * time.Second,
 	}
 	if cfg.PackagedExe == "" {
 		cfg.PackagedExe = defaultPackagedExe(root)

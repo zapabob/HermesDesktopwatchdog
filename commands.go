@@ -61,13 +61,42 @@ func (w *Watchdog) runAllowlistedCommand(cmd CommandType, reason string) bool {
 		w.back.mu.Unlock()
 		return true
 	case CommandWarmRestart:
-		if w.heartbeats != nil {
-			w.heartbeats.BumpEpoch("hermes-desktop")
-			w.heartbeats.BumpEpoch("hermes-backend")
-		}
-		// P1: warm restart is Desktop last-resort restart (full drain lands in P4).
-		return restartPackagedDesktop(w.cfg, w.logger, w.back)
+		return w.runWarmStartCommand(reason)
 	default:
+		return false
+	}
+}
+
+// runWarmStartCommand executes the P4 warm-start sequencer (backend-focused).
+// Outcome interrupted is never treated as success.
+func (w *Watchdog) runWarmStartCommand(reason string) bool {
+	if w.warmStart == nil {
+		w.warmStart = NewWarmStartSequencer(w.cfg, w.logger, w.defaultWarmStartHooks())
+	}
+	w.setBackendState(StateStopping)
+	snap := w.warmStart.Run(reason, func() (before, after int64) {
+		before = 1
+		if w.heartbeats != nil {
+			before = w.heartbeats.Epoch("hermes-backend")
+			after = w.heartbeats.BumpEpoch("hermes-backend")
+			_ = w.heartbeats.BumpEpoch("hermes-desktop")
+			return before, after
+		}
+		return before, before + 1
+	})
+	switch snap.Outcome {
+	case WarmStartSuccess:
+		w.setBackendState(StateReady)
+		w.logger.Infof("warm_start success reason=%s", reason)
+		return true
+	case WarmStartInterrupted:
+		// Interrupted is a completed force path — backend may be Ready but outcome ≠ success.
+		w.setBackendState(StateReady)
+		w.logger.Infof("warm_start INTERRUPTED (never success) reason=%s activeRuns=%d", reason, snap.ActiveRunsAtEnd)
+		return true
+	default:
+		w.setBackendState(StateUnresponsive)
+		w.logger.Infof("warm_start failed reason=%s detail=%s", reason, snap.Detail)
 		return false
 	}
 }

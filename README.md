@@ -20,8 +20,9 @@ Binary → `dist\hermes-watchdog.exe` (gitignored). Default listen: `127.0.0.1:9
 - **P1** — `ServiceState` machine + crash-loop `RestartPolicy` (watchdog is sole restart authority)
 - **P2** — Mutual health (`/health`, `/api/status`, backend live/ready) + heartbeat ingest (`POST /api/v1/heartbeat`)
 - **P3** — Report-only IPC (Named Pipe + HTTP `/api/v1/report` / `/command` / `/ipc`); Desktop/Backend cannot restart themselves
-
-Planned (not shipped): drain/checkpoint (P4), Job Object / renderer recovery (P5), update-window suppress (P6) — see ADRs.
+- **P4** — Warm-start sequencer (`warm_restart`); see [`_docs/WARM-START-CONTRACT.md`](_docs/WARM-START-CONTRACT.md)
+- **P5** — Windows Job Object for managed backend; renderer-only anomaly policy stub
+- **P6** — Update suppress: env `HERMES_WATCHDOG_UPDATE_IN_PROGRESS`, `%LOCALAPPDATA%\HermesWatchdog\update.lock`, `POST /api/v1/update-suppress`
 
 ## Safety
 
@@ -35,6 +36,7 @@ Loopback-only by default + admin token for mutations. Details: [SECURITY.md](SEC
 |-----|-----|
 | [`_docs/OPERATOR.md`](_docs/OPERATOR.md) | Short operator runbook |
 | [`_docs/ADR-2026-07-21_hermes-watchdog-lifecycle-manager.md`](_docs/ADR-2026-07-21_hermes-watchdog-lifecycle-manager.md) | Lifecycle ADR |
+| [`_docs/WARM-START-CONTRACT.md`](_docs/WARM-START-CONTRACT.md) | P4 warm-start contract for Hermes |
 | [`_docs/IPC-CONTRACT-P3.md`](_docs/IPC-CONTRACT-P3.md) | P3 report-only IPC contract |
 | [`_docs/`](_docs/) | Phase implementation logs |
 

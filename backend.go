@@ -44,6 +44,7 @@ type BackendManager struct {
 	pid   int
 	port  int
 	token string
+	job   *ProcessJob // Windows Job Object for managed child tree (P5)
 }
 
 func NewBackendManager(cfg Config, logger *Logger) *BackendManager {
@@ -217,13 +218,40 @@ func (bm *BackendManager) currentHealthy() *backendInfo {
 }
 
 func (bm *BackendManager) stopLocked() {
-	if bm.cmd != nil && bm.cmd.Process != nil {
+	// Prefer Job Object terminate so MCP/uvicorn grandchildren die with the tree.
+	if bm.job != nil && bm.job.Active() {
+		if err := bm.job.Terminate(1); err != nil && bm.logger != nil {
+			bm.logger.Infof("job terminate: %v — falling back to taskkill", err)
+			if bm.cmd != nil && bm.cmd.Process != nil {
+				stopProcessPID(uint32(bm.cmd.Process.Pid))
+			} else if bm.pid > 0 {
+				stopProcessPID(uint32(bm.pid))
+			}
+		}
+		bm.job.Close()
+		bm.job = nil
+	} else if bm.cmd != nil && bm.cmd.Process != nil {
 		stopProcessPID(uint32(bm.cmd.Process.Pid))
+	} else if bm.pid > 0 {
+		stopProcessPID(uint32(bm.pid))
 	}
 	bm.cmd = nil
 	bm.pid = 0
 	bm.port = 0
 	bm.token = ""
+}
+
+func (bm *BackendManager) JobSnapshot() JobObjectSnapshot {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	snap := JobObjectSnapshot{Enabled: true, BackendPID: bm.pid}
+	if bm.job != nil && bm.job.Active() {
+		snap.Active = true
+		snap.Detail = portHoldHint(bm.port)
+	} else {
+		snap.Detail = "no active job (process not started or already stopped)"
+	}
+	return snap
 }
 
 func (bm *BackendManager) waitForReadyPort(port int, timeout time.Duration) error {
@@ -306,6 +334,23 @@ func (bm *BackendManager) EnsureHealthy() (*backendInfo, error) {
 	}
 	go io.Copy(io.Discard, stdout)
 
+	// Assign to Job Object ASAP so tree kill works even if readiness fails.
+	if bm.job != nil {
+		bm.job.Close()
+		bm.job = nil
+	}
+	if job, jerr := NewProcessJob(); jerr != nil {
+		bm.logger.Infof("job object create failed (fallback taskkill): %v", jerr)
+	} else if cmd.Process != nil {
+		if aerr := job.AssignPID(cmd.Process.Pid); aerr != nil {
+			bm.logger.Infof("job assign pid=%d: %v", cmd.Process.Pid, aerr)
+			job.Close()
+		} else {
+			bm.job = job
+			bm.logger.Infof("job object assigned pid=%d (%s)", cmd.Process.Pid, portHoldHint(port))
+		}
+	}
+
 	if err := bm.waitForReadyPort(port, time.Duration(bm.cfg.BackendStartTimeoutSec)*time.Second); err != nil {
 		if cmd.Process != nil && !processAlive(cmd.Process.Pid) {
 			bm.stopLocked()
@@ -333,7 +378,7 @@ func (bm *BackendManager) EnsureHealthy() (*backendInfo, error) {
 		bm.logger.Infof("manifest write failed: %v", err)
 	}
 
-	bm.logger.Infof("managed backend ready pid=%d port=%d", bm.pid, bm.port)
+	bm.logger.Infof("managed backend ready pid=%d port=%d job=%v", bm.pid, bm.port, bm.job != nil && bm.job.Active())
 	return &backendInfo{PID: uint32(bm.pid), Port: port, Cmd: "watchdog-managed serve"}, nil
 }
 

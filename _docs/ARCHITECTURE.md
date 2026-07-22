@@ -3,7 +3,7 @@
 **Audience:** operators and developers working in this repository (`zapabob/HermesDesktopwatchdog`)  
 **Scope:** Go Watchdog only. This document does **not** modify or prescribe hermes-agent / Hermes Desktop source trees.  
 **Status date:** 2026-07-22  
-**Shipped phases:** P1–P3 · **Planned:** P4–P6 (see [ADR](ADR-2026-07-21_hermes-watchdog-lifecycle-manager.md))
+**Shipped phases:** P1–P6 · Hermes adapter gaps documented (see roadmap)
 
 ---
 
@@ -27,7 +27,8 @@ Operator-only Windows process that keeps packaged Hermes Desktop (`Hermes.exe`) 
 | Official NousResearch component | Standalone ops binary |
 | Free-form shell / remote code exec | Allowlisted `CommandType` only ([SECURITY.md](../SECURITY.md)) |
 | Treating ops ports as Desktop backends | Reserved: `8787`, `9120`, `9920`, … |
-| Implementing P4–P6 here as shipped | Documented as planned only |
+| Implementing Hermes Desktop/Backend adapters inside this repo | Contracts only; hermes-agent is separate |
+| Claiming full warm-start session restore without Hermes | Watchdog emits signals; Hermes restores durable state later |
 | Changing hermes-agent in this repo | Desktop/Backend adapters are separate PRs; contract: [IPC-CONTRACT-P3.md](IPC-CONTRACT-P3.md) |
 
 ---
@@ -388,8 +389,9 @@ Secrets must never be committed (`.env`, auth keys, built `.exe`).
 | POST | `/api/v1/ipc` | role-dependent | Shared envelope |
 | POST | `/api/v1/command` | **admin** + nonce | Allowlisted command |
 | POST | `/api/v1/pause` \| `resume` \| `cycle` \| `stop` | **admin** | Operator control |
+| POST/GET | `/api/v1/update-suppress` | **admin** | P6 update-window suppress on/off + optional TTL |
 
-`WatchdogState` exposes `soleRestartAuthority`, `reportOnlyContract`, `leases`, `recentAnomalies`, `ipcPipe`, per-service `ServiceState`, and restart snapshot.
+`WatchdogState` exposes `soleRestartAuthority`, `reportOnlyContract`, `leases`, `recentAnomalies`, `ipcPipe`, `warmStart`, `updateSuppress`, `jobObject`, `recovery`, per-service `ServiceState`, and restart snapshot.
 
 ---
 
@@ -400,13 +402,18 @@ Secrets must never be committed (`.env`, auth keys, built `.exe`).
 | **P1** | **Done** | `ServiceState`, `RestartPolicy`, events, sole-authority loop | [phase1 log](2026-07-22_phase1-state-machine_Cursor.md) |
 | **P2** | **Done** | Multi-level health + heartbeat epoch/lease | [phase2 log](2026-07-22_phase2-health-heartbeat_Cursor.md) |
 | **P3** | **Done (this repo)** | Report-only IPC (pipe + HTTP), T12 merge, allowlist | [phase3 log](2026-07-22_phase3-ipc-report-only_Cursor.md), [IPC-CONTRACT-P3.md](IPC-CONTRACT-P3.md) |
-| **P4** | Planned | Warm-start drain / checkpoint / interrupted | [ADR roadmap](ADR-2026-07-21_hermes-watchdog-lifecycle-manager.md) |
-| **P5** | Planned | Windows Job Object; main/renderer granularity | ADR |
-| **P6** | Planned | Update-window suppress restart | ADR |
+| **P4** | **Done (Watchdog-owned)** | Warm-start sequencer; interrupted ≠ success; manifest notify | [WARM-START-CONTRACT.md](WARM-START-CONTRACT.md), [phase4–6 log](2026-07-22_phase4-6_lifecycle_Cursor.md) |
+| **P5** | **Done (Watchdog-owned)** | Job Object for managed backend; renderer-only policy stub (T04) | phase4–6 log |
+| **P6** | **Done (Watchdog-owned)** | Update suppress (env / lock file / admin API) (T13) | phase4–6 log |
+
+**Hermes-dependent residual gaps (honest):**
+
+- P3/P4: Desktop/Backend must actually send heartbeats, drain, and checkpoint — adapters live in hermes-agent, not here.
+- P4: session routing restore is signal-only (`session_routing_restore_signal`).
+- P5: renderer recreate needs Electron IPC; Watchdog only skips full Desktop restart and emits events.
+- P6: installer should write `update.lock` / set env — Watchdog honors them when present.
 
 **Important:** P3 *contract* for hermes-agent adapters is published here; enforcing report-only inside Desktop/Backend binaries is a **separate** hermes-agent change and is **not** claimed as completed by this repository alone.
-
-Do not invent features beyond the table above.
 
 ---
 
@@ -416,6 +423,7 @@ Do not invent features beyond the table above.
 |-----|------|
 | [ADR-2026-07-21_hermes-watchdog-lifecycle-manager.md](ADR-2026-07-21_hermes-watchdog-lifecycle-manager.md) | Normative lifecycle decisions (do not duplicate) |
 | [IPC-CONTRACT-P3.md](IPC-CONTRACT-P3.md) | Desktop/Backend integration contract |
+| [WARM-START-CONTRACT.md](WARM-START-CONTRACT.md) | P4 warm-start Watchdog↔Hermes contract |
 | [OPERATOR.md](OPERATOR.md) | Short operator runbook |
 | [SECURITY.md](../SECURITY.md) | Security policy |
 | [AGENTS.md](../AGENTS.md) | Agent/repo constraints |

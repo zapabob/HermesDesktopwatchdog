@@ -70,6 +70,21 @@ func (w *Watchdog) HandleIPCMessage(env IPCEnvelope, authRole string) (IPCResult
 		if snap.Merged {
 			w.logger.Infof("T12 dual anomaly merged code=%s sources=%s — sole authority decides", snap.Code, snap.Sources)
 		}
+		if w.recovery != nil && w.recovery.ObserveAnomaly(snap.Code) {
+			w.logger.Infof("T04 renderer-only anomaly code=%s — skip full Desktop restart", snap.Code)
+			w.logger.EmitEvent(w.cfg.EventsPath, RestartEvent{
+				Event:   "renderer_only_policy",
+				Service: "desktop",
+				Reason:  snap.Code,
+				Detail:  rendererOnlyLimitationDetail(snap.Code),
+			})
+			return IPCResult{
+				Accepted: true,
+				Action:   action,
+				Anomaly:  snap,
+				Detail:   rendererOnlyLimitationDetail(snap.Code),
+			}, nil
+		}
 		return IPCResult{Accepted: true, Action: action, Anomaly: snap, Detail: "report-only; watchdog retains restart authority"}, nil
 
 	case IPCMessageCommandRequest:
