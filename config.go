@@ -4,30 +4,39 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Config holds runtime paths and secrets loaded from flags/env.
 // This binary is intentionally outside Hermes tool/plugin discovery.
 type Config struct {
-	IntervalSec             int
-	FailThreshold           int
-	Once                    bool
-	PrewarmBackend          bool
-	BackendStartTimeoutSec  int
-	BackendReadyTimeoutSec  int
-	ManagedBackendPort      int
-	ListenAddr              string
-	TsnetHostname           string
-	EnableTsnet             bool
-	HermesRoot              string
-	HermesHome              string
-	PackagedExe             string
-	DataDir                 string
-	LogPath                 string
-	LockPath                string
-	StatePath               string
-	AdminToken              string
-	TsAuthKey               string
+	IntervalSec            int
+	FailThreshold          int
+	Once                   bool
+	PrewarmBackend         bool
+	BackendStartTimeoutSec int
+	BackendReadyTimeoutSec int
+	ManagedBackendPort     int
+	ListenAddr             string
+	TsnetHostname          string
+	EnableTsnet            bool
+	HermesRoot             string
+	HermesHome             string
+	PackagedExe            string
+	DataDir                string
+	LogPath                string
+	LockPath               string
+	StatePath              string
+	EventsPath             string
+	AdminToken             string
+	HeartbeatToken         string
+	TsAuthKey              string
+	RestartPolicy          RestartPolicy
+	HeartbeatTimeout       time.Duration
+	DeepHealthInterval     time.Duration
+	EnableIPCPipe          bool
+	IPCPipeName            string
+	AnomalyMergeWindow     time.Duration
 }
 
 func defaultHermesHome() string {
@@ -83,6 +92,13 @@ func loadTsAuthKey() string {
 
 func loadAdminToken() string {
 	return strings.TrimSpace(os.Getenv("HERMES_WATCHDOG_ADMIN_TOKEN"))
+}
+
+func loadHeartbeatToken() string {
+	if v := strings.TrimSpace(os.Getenv("HERMES_WATCHDOG_HEARTBEAT_TOKEN")); v != "" {
+		return v
+	}
+	return loadAdminToken()
 }
 
 func fileExists(path string) bool {

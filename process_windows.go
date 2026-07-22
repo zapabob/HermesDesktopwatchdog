@@ -5,7 +5,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -122,20 +121,11 @@ func appendUniqueInt(list []int, v int) []int {
 	return append(list, v)
 }
 
-func testBackendStatus(port int) bool {
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/status", port))
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
-
 type backendInfo struct {
-	PID  uint32 `json:"pid"`
-	Port int    `json:"port"`
-	Cmd  string `json:"cmd,omitempty"`
+	PID    uint32        `json:"pid"`
+	Port   int           `json:"port"`
+	Cmd    string        `json:"cmd,omitempty"`
+	Health BackendHealth `json:"health,omitempty"`
 }
 
 func findHealthyDesktopBackend() *backendInfo {
@@ -143,6 +133,7 @@ func findHealthyDesktopBackend() *backendInfo {
 	if err != nil {
 		return nil
 	}
+	var liveOnly *backendInfo
 	for _, proc := range candidates {
 		ports, perr := getListeningPorts(proc.ProcessID)
 		if perr != nil {
@@ -152,16 +143,22 @@ func findHealthyDesktopBackend() *backendInfo {
 			if isReservedOpsPort(port) {
 				continue
 			}
-			if testBackendStatus(port) {
-				return &backendInfo{
-					PID:  proc.ProcessID,
-					Port: port,
-					Cmd:  proc.CommandLine,
-				}
+			h := probeBackendHealth(port, false, 0, time.Now())
+			info := &backendInfo{
+				PID:    proc.ProcessID,
+				Port:   port,
+				Cmd:    proc.CommandLine,
+				Health: h,
+			}
+			if h.Ready {
+				return info
+			}
+			if h.Live && liveOnly == nil {
+				liveOnly = info
 			}
 		}
 	}
-	return nil
+	return liveOnly
 }
 
 func stopProcessPID(pid uint32) {

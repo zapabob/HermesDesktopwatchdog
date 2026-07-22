@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"tailscale.com/tsnet"
 )
@@ -30,11 +31,21 @@ func main() {
 	tsnetHost := flag.String("tsnet-hostname", "hermes-watchdog", "Tailscale tsnet hostname")
 	enableTsnet := flag.Bool("tsnet", false, "Enable Tailscale tsnet listener (also auto when authkey env set)")
 	interval := flag.Int("interval", 20, "Watchdog probe interval seconds")
-	failThreshold := flag.Int("fail-threshold", 2, "Consecutive backend failures before Desktop restart")
+	failThreshold := flag.Int("fail-threshold", 2, "Consecutive backend failures before Desktop last-resort restart")
 	prewarm := flag.Bool("prewarm-backend", true, "Pre-start and supervise a hermes serve for fast Desktop connect")
 	backendStartTimeout := flag.Int("backend-start-timeout", 120, "Seconds to wait for managed serve /api/status")
 	backendReadyTimeout := flag.Int("backend-ready-timeout", 45, "Extra seconds waiting for managed serve readiness")
 	managedPort := flag.Int("managed-backend-port", DefaultManagedBackendPort, "Fixed localhost port for watchdog-managed hermes serve")
+	maxRestarts := flag.Int("max-restarts", 5, "Max backend recovery attempts inside restart window before Failed")
+	restartWindowSec := flag.Int("restart-window-sec", 600, "Sliding window seconds for max-restarts")
+	initialBackoffMS := flag.Int("initial-backoff-ms", 1000, "Initial backend recovery backoff milliseconds")
+	maxBackoffMS := flag.Int("max-backoff-ms", 60000, "Max backend recovery backoff milliseconds")
+	resetAfterSec := flag.Int("reset-after-sec", 600, "Stable Ready seconds before clearing restart counters")
+	heartbeatTimeoutSec := flag.Int("heartbeat-timeout-sec", 45, "Max age of accepted heartbeats (monotonic receive clock)")
+	deepHealthSec := flag.Int("deep-health-interval-sec", 300, "Min seconds between /health/deep probes (cached)")
+	ipcPipe := flag.String("ipc-pipe", DefaultIPCPipeName, "Windows Named Pipe path for P3 IPC (empty disables)")
+	noIPCPipe := flag.Bool("no-ipc-pipe", false, "Disable Named Pipe IPC listener")
+	anomalyMergeSec := flag.Int("anomaly-merge-sec", 5, "Window to merge dual Desktop+Backend anomaly reports (T12)")
 	once := flag.Bool("once", false, "Run a single watchdog cycle then exit")
 	noHTTP := flag.Bool("no-http", false, "Disable HTTP control plane (watch loop only)")
 	flag.Parse()
@@ -69,14 +80,27 @@ func main() {
 		BackendReadyTimeoutSec: *backendReadyTimeout,
 		ManagedBackendPort:     *managedPort,
 		ListenAddr:             strings.TrimSpace(*listen),
-		TsnetHostname: *tsnetHost,
-		EnableTsnet:   *enableTsnet,
-		HermesRoot:    root,
-		HermesHome:    home,
-		PackagedExe:   *packagedExe,
-		DataDir:       *dataDir,
-		AdminToken:    loadAdminToken(),
-		TsAuthKey:     loadTsAuthKey(),
+		TsnetHostname:          *tsnetHost,
+		EnableTsnet:            *enableTsnet,
+		HermesRoot:             root,
+		HermesHome:             home,
+		PackagedExe:            *packagedExe,
+		DataDir:                *dataDir,
+		AdminToken:             loadAdminToken(),
+		HeartbeatToken:         loadHeartbeatToken(),
+		TsAuthKey:              loadTsAuthKey(),
+		RestartPolicy: RestartPolicy{
+			MaxRestarts:    *maxRestarts,
+			Window:         time.Duration(*restartWindowSec) * time.Second,
+			InitialBackoff: time.Duration(*initialBackoffMS) * time.Millisecond,
+			MaxBackoff:     time.Duration(*maxBackoffMS) * time.Millisecond,
+			ResetAfter:     time.Duration(*resetAfterSec) * time.Second,
+		},
+		HeartbeatTimeout:   time.Duration(*heartbeatTimeoutSec) * time.Second,
+		DeepHealthInterval: time.Duration(*deepHealthSec) * time.Second,
+		EnableIPCPipe:      !*noIPCPipe && strings.TrimSpace(*ipcPipe) != "",
+		IPCPipeName:        strings.TrimSpace(*ipcPipe),
+		AnomalyMergeWindow: time.Duration(*anomalyMergeSec) * time.Second,
 	}
 	if cfg.PackagedExe == "" {
 		cfg.PackagedExe = defaultPackagedExe(root)
@@ -93,6 +117,7 @@ func main() {
 	cfg.LogPath = filepath.Join(logDir, "hermes-go-watchdog.log")
 	cfg.LockPath = filepath.Join(cfg.DataDir, "watchdog.lock")
 	cfg.StatePath = filepath.Join(cfg.DataDir, "watchdog.state.json")
+	cfg.EventsPath = filepath.Join(cfg.DataDir, "watchdog.events.jsonl")
 
 	logger := NewLogger(cfg.LogPath)
 	release, ok := acquireLock(cfg.LockPath, root, logger)
@@ -102,9 +127,9 @@ func main() {
 	defer release()
 
 	wd := NewWatchdog(cfg, logger)
-	wd.PrewarmBackend()
 
 	if *once {
+		wd.PrewarmBackend()
 		wd.RunCycle()
 		logger.Infof("watchdog once complete")
 		return
@@ -119,6 +144,7 @@ func main() {
 		}
 	}
 
+	// Control plane before Prewarm so operators can observe during long serve startup.
 	if !*noHTTP {
 		srv := NewHTTPServer(cfg, wd, shutdown)
 		handler := srv.Handler()
@@ -129,8 +155,12 @@ func main() {
 			go serveTsnet(logger, cfg, handler)
 		}
 	}
+	go startIPCPipe(logger, cfg, wd, stop)
 
-	go wd.RunLoop(stop)
+	go func() {
+		wd.PrewarmBackend()
+		wd.RunLoop(stop)
+	}()
 	<-stop
 	logger.Infof("watchdog stop")
 }

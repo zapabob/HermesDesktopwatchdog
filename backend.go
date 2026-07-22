@@ -200,19 +200,20 @@ func (bm *BackendManager) currentHealthy() *backendInfo {
 	pid := bm.pid
 	port := bm.port
 	bm.mu.Unlock()
-	if pid <= 0 || port <= 0 {
+	if port <= 0 {
 		return nil
 	}
-	if !processAlive(pid) {
+	if pid > 0 && !processAlive(pid) {
 		return nil
 	}
 	if isReservedOpsPort(port) {
 		return nil
 	}
-	if !testBackendStatus(port) {
+	h := probeBackendHealth(port, false, 0, time.Now())
+	if !h.Live {
 		return nil
 	}
-	return &backendInfo{PID: uint32(pid), Port: port, Cmd: "watchdog-managed serve"}
+	return &backendInfo{PID: uint32(pid), Port: port, Cmd: "watchdog-managed serve", Health: h}
 }
 
 func (bm *BackendManager) stopLocked() {
@@ -228,7 +229,7 @@ func (bm *BackendManager) stopLocked() {
 func (bm *BackendManager) waitForReadyPort(port int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if testBackendStatus(port) {
+		if quickBackendReady(port) {
 			return nil
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -241,7 +242,7 @@ func (bm *BackendManager) EnsureHealthy() (*backendInfo, error) {
 	if bm.cfg.HermesRoot == "" {
 		return nil, fmt.Errorf("hermes root not configured")
 	}
-	if existing := bm.currentHealthy(); existing != nil {
+	if existing := bm.currentHealthy(); existing != nil && existing.Health.Ready {
 		_ = bm.publishManifestLocked(existing.Port, int(existing.PID))
 		return existing, nil
 	}
@@ -249,7 +250,7 @@ func (bm *BackendManager) EnsureHealthy() (*backendInfo, error) {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
 
-	if bm.cmd != nil && bm.port > 0 && processAlive(bm.pid) && testBackendStatus(bm.port) {
+	if bm.cmd != nil && bm.port > 0 && processAlive(bm.pid) && quickBackendReady(bm.port) {
 		info := &backendInfo{PID: uint32(bm.pid), Port: bm.port, Cmd: "watchdog-managed serve"}
 		_ = bm.publishManifestLocked(bm.port, bm.pid)
 		return info, nil
@@ -262,10 +263,17 @@ func (bm *BackendManager) EnsureHealthy() (*backendInfo, error) {
 	} else if isReservedOpsPort(port) {
 		bm.clearManifest()
 		return nil, fmt.Errorf("managed backend port %d is reserved", port)
-	} else if testBackendStatus(port) {
+	} else if quickBackendReady(port) {
 		bm.port = port
-		if manifest, err := bm.readManifest(); err == nil && manifest.Token != "" {
-			bm.token = manifest.Token
+		var manifestPID int
+		if manifest, err := bm.readManifest(); err == nil {
+			if manifest.Token != "" {
+				bm.token = manifest.Token
+			}
+			if manifest.PID > 0 && processAlive(manifest.PID) {
+				manifestPID = manifest.PID
+				bm.pid = manifestPID
+			}
 		}
 		if bm.token == "" {
 			token, terr := generateSessionToken()
@@ -274,9 +282,9 @@ func (bm *BackendManager) EnsureHealthy() (*backendInfo, error) {
 			}
 			bm.token = token
 		}
-		_ = bm.publishManifestLocked(port, 0)
+		_ = bm.publishManifestLocked(port, bm.pid)
 		bm.logger.Infof("reusing healthy managed backend on port %d", port)
-		return &backendInfo{Port: port, Cmd: "existing serve on managed port"}, nil
+		return &backendInfo{PID: uint32(bm.pid), Port: port, Cmd: "existing serve on managed port"}, nil
 	}
 
 	cmd, token, port, err := buildServeCommand(bm.cfg)
@@ -367,10 +375,11 @@ func loadManifestBackend(cfg Config) *backendInfo {
 	if manifest.PID > 0 && !processAlive(manifest.PID) {
 		return nil
 	}
-	if !testBackendStatus(port) {
+	if !testBackendLive(port) {
 		return nil
 	}
-	return &backendInfo{PID: uint32(manifest.PID), Port: port, Cmd: "manifest serve"}
+	h := probeBackendHealth(port, false, 0, time.Now())
+	return &backendInfo{PID: uint32(manifest.PID), Port: port, Cmd: "manifest serve", Health: h}
 }
 
 func desktopLaunchEnv(cfg Config, manifest *DesktopBackendManifest) []string {

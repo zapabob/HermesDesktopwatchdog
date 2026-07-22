@@ -23,6 +23,10 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
+	mux.HandleFunc("/api/v1/heartbeat", s.handleHeartbeat)
+	mux.HandleFunc("/api/v1/report", s.handleReport)
+	mux.HandleFunc("/api/v1/command", s.handleCommand)
+	mux.HandleFunc("/api/v1/ipc", s.handleIPC)
 	mux.HandleFunc("/api/v1/pause", s.handlePause)
 	mux.HandleFunc("/api/v1/resume", s.handleResume)
 	mux.HandleFunc("/api/v1/cycle", s.handleCycle)
@@ -92,6 +96,170 @@ func (s *HTTPServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"stopping": "true"})
 	go s.shutdown()
+}
+
+func (s *HTTPServer) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireHeartbeatAuth(w, r) {
+		return
+	}
+	var env HeartbeatEnvelope
+	if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.wd.IngestHeartbeat(env); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	service := env.Payload.Service
+	if service == "" {
+		service = "hermes-backend"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"accepted": true,
+		"lease":    s.wd.heartbeats.Snapshot(service),
+	})
+}
+
+func (s *HTTPServer) handleReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireHeartbeatAuth(w, r) {
+		return
+	}
+	var raw json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	var env IPCEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Bare AnomalyPayload → wrap as anomaly_report envelope.
+	if strings.TrimSpace(env.MessageType) == "" && env.ProtocolVersion == 0 {
+		var bare AnomalyPayload
+		if err := json.Unmarshal(raw, &bare); err == nil && strings.TrimSpace(bare.Code) != "" {
+			payload, _ := json.Marshal(bare)
+			env = IPCEnvelope{
+				ProtocolVersion: ipcProtocolVersion,
+				MessageType:     IPCMessageAnomalyReport,
+				Payload:         payload,
+			}
+		}
+	}
+	if strings.TrimSpace(env.MessageType) == "" {
+		env.MessageType = IPCMessageAnomalyReport
+	}
+	if env.ProtocolVersion == 0 {
+		env.ProtocolVersion = ipcProtocolVersion
+	}
+	res, err := s.wd.HandleIPCMessage(env, "service")
+	if err != nil && !res.Accepted {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *HTTPServer) handleCommand(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var env IPCEnvelope
+	if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(env.MessageType) == "" {
+		env.MessageType = IPCMessageCommandRequest
+	}
+	if env.ProtocolVersion == 0 {
+		env.ProtocolVersion = ipcProtocolVersion
+	}
+	res, err := s.wd.HandleIPCMessage(env, "admin")
+	if err != nil && !res.Accepted {
+		code := http.StatusConflict
+		if res.Action == "rejected" {
+			code = http.StatusForbidden
+		}
+		http.Error(w, err.Error(), code)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *HTTPServer) handleIPC(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var env IPCEnvelope
+	if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	mt := strings.ToLower(strings.TrimSpace(env.MessageType))
+	authRole := "service"
+	switch mt {
+	case IPCMessageCommandRequest:
+		if !s.requireAdmin(w, r) {
+			return
+		}
+		authRole = "admin"
+	default:
+		if !s.requireHeartbeatAuth(w, r) {
+			return
+		}
+	}
+	if env.ProtocolVersion == 0 {
+		env.ProtocolVersion = ipcProtocolVersion
+	}
+	res, err := s.wd.HandleIPCMessage(env, authRole)
+	if err != nil && !res.Accepted {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// requireHeartbeatAuth allows Admin token, dedicated heartbeat token, or
+// unauthenticated loopback when no tokens are configured.
+func (s *HTTPServer) requireHeartbeatAuth(w http.ResponseWriter, r *http.Request) bool {
+	admin := strings.TrimSpace(s.cfg.AdminToken)
+	hb := strings.TrimSpace(s.cfg.HeartbeatToken)
+	got := extractAdminToken(r)
+	if hb != "" && got == hb {
+		return true
+	}
+	if admin != "" && got == admin {
+		return true
+	}
+	if admin == "" && hb == "" {
+		host := r.RemoteAddr
+		if i := strings.LastIndex(host, ":"); i >= 0 {
+			host = host[:i]
+		}
+		host = strings.Trim(host, "[]")
+		if host == "127.0.0.1" || host == "::1" || host == "localhost" {
+			return true
+		}
+		http.Error(w, "heartbeat requires loopback or token", http.StatusUnauthorized)
+		return false
+	}
+	http.Error(w, "unauthorized", http.StatusUnauthorized)
+	return false
 }
 
 func (s *HTTPServer) requireAdmin(w http.ResponseWriter, r *http.Request) bool {

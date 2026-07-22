@@ -100,14 +100,22 @@ function Format-WatchdogArg([string]$Name, [string]$Value) {
     return ('{0}={1}' -f $Name, $Value)
 }
 
-# Pass flag name and value as separate argv entries so paths with spaces
-# ("New project") are not truncated by Start-Process command-line quoting.
-# Go's flag package accepts both -name=value and -name value.
+# Prefer -name="value with spaces" so Start-Process cannot split paths like
+# "...\New project\hermes-agent" across argv boundaries.
+function Format-EqualsArg([string]$Name, [string]$Value) {
+    if ($null -eq $Value) { $Value = "" }
+    if ($Value -match '[\s"]') {
+        $escaped = $Value.Replace('"', '\"')
+        return ('{0}="{1}"' -f $Name, $escaped)
+    }
+    return ('{0}={1}' -f $Name, $Value)
+}
+
 $argList = @(
     "-interval=$IntervalSec",
     "-fail-threshold=$FailThreshold",
-    "-hermes-root", $RepoRoot,
-    "-hermes-home", $HermesHome,
+    (Format-EqualsArg "-hermes-root" $RepoRoot),
+    (Format-EqualsArg "-hermes-home" $HermesHome),
     "-listen=$Listen"
 )
 if ($Once) { $argList += "-once" }
