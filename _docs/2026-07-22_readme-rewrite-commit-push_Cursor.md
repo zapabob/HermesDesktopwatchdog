@@ -63,12 +63,16 @@ git status
 
 ## テスト・検証結果
 
-本作業はドキュメント整理＋git 配信。コード検証は既存 `go test` に依存（本ログ時点では push 前に別途実行していない場合あり）。
+- Commit: `2083135` on `main`
+- Push: `90765df..2083135  main -> main` → `https://github.com/zapabob/HermesDesktopwatchdog.git`
+- Post-push `git status`: clean working tree except untracked `.cursor/`
+- 本作業はドキュメント整理＋git 配信。`go test` は本ターンでは再実行していない（既存 Phase ログ側の検証に依存）
 
 ## 残留リスク
 
 - README から詳細 API/CLI 表を外したため、オペレータは `_docs` / フラグ `-h` を参照する必要がある
 - リモート push 後の CI 結果は別途確認が必要
+- 実装ログ追記（本ハッシュ記録）は push 後ローカル差分として残る可能性あり
 
 ## 次の推奨アクション
 
