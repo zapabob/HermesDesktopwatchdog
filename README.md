@@ -9,11 +9,11 @@ Operator-only process that keeps Hermes Desktop (`Hermes.exe`) and managed `herm
 ## Site & download
 
 - **Pages:** https://zapabob.github.io/HermesDesktopwatchdog/
-- **Release v1.1.0:**
-  - [Windows amd64 (exe)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.1.0/hermes-watchdog-windows-amd64-v1.1.0.tar.gz)
-  - [Linux amd64 (source + stubs)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.1.0/hermes-watchdog-linux-amd64-v1.1.0.tar.gz)
-  - [macOS arm64 (source + stubs)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.1.0/hermes-watchdog-darwin-arm64-v1.1.0.tar.gz)
-  - [Full source](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.1.0/hermes-watchdog-src-v1.1.0.tar.gz)
+- **Release v1.2.0:**
+  - [Windows amd64 (exe)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.2.0/hermes-watchdog-windows-amd64-v1.2.0.tar.gz)
+  - [Linux amd64 (source + stubs)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.2.0/hermes-watchdog-linux-amd64-v1.2.0.tar.gz)
+  - [macOS arm64 (source + stubs)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.2.0/hermes-watchdog-darwin-arm64-v1.2.0.tar.gz)
+  - [Full source](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.2.0/hermes-watchdog-src-v1.2.0.tar.gz)
 
 Primary runtime is **Windows**. Linux/macOS archives ship source and stub builds for compile/smoke only — not full Desktop supervision.
 
@@ -39,7 +39,7 @@ Binary → `dist\hermes-watchdog.exe` (gitignored). Listen → `127.0.0.1:9920`.
 | P5 | Windows Job Object for managed backend tree |
 | P6 | Update suppress (env / `update.lock` / admin API) |
 
-Plus migrations from hermes-agent watchdog-go: `serve --skip-build`, session-token auth drift detection & port replace.
+Plus migrations from hermes-agent watchdog-go: `serve --skip-build`, session-token auth drift detection & port replace, netstat listener fallback, bounded `taskkill`, async prewarm, and Start/Build timeout flags.
 
 ## Safety
 

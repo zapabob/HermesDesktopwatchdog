@@ -117,7 +117,7 @@ func testBackendAuth(port int, token string) bool {
 	if port <= 0 || strings.TrimSpace(token) == "" {
 		return false
 	}
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 3 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/api/sessions", port), nil)
 	if err != nil {
 		return false

@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "v1.1.0";
+  const VERSION = "v1.2.0";
   const BASE = `https://github.com/zapabob/HermesDesktopwatchdog/releases/download/${VERSION}`;
   const ASSETS = {
     windows: `hermes-watchdog-windows-amd64-${VERSION}.tar.gz`,

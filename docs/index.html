@@ -14,7 +14,7 @@
 <body>
   <div class="wrap">
     <header class="nav">
-      <div class="nav-brand">Hermes · Watchdog <span class="ver-badge" id="ver-badge">v1.1.0</span></div>
+      <div class="nav-brand">Hermes · Watchdog <span class="ver-badge" id="ver-badge">v1.2.0</span></div>
       <nav class="nav-links" aria-label="Primary">
         <a href="#architecture">Architecture</a>
         <a href="#phases">Phases</a>
@@ -91,8 +91,8 @@
 
     <section id="phases">
       <div class="section-head">
-        <h2>Shipped phases P1–P6 + v1.1.0</h2>
-        <p>Lifecycle manager path from state machine through update suppress, plus auth-drift hardening.</p>
+        <h2>Shipped phases P1–P6 + v1.2.0</h2>
+        <p>Lifecycle manager path from state machine through update suppress, plus hermes-agent process hardening sync.</p>
       </div>
       <div class="phase-list">
         <div class="glass phase"><strong>P1</strong><span>ServiceState machine + crash-loop RestartPolicy — watchdog is sole restart authority.</span></div>
@@ -102,6 +102,7 @@
         <div class="glass phase"><strong>P5</strong><span>Windows Job Object for managed backend; renderer anomaly policy stub.</span></div>
         <div class="glass phase"><strong>P6</strong><span>Update suppress via env, update.lock, and POST /api/v1/update-suppress.</span></div>
         <div class="glass phase"><strong>1.1</strong><span>serve --skip-build, session-token auth drift replace, multi-platform source packages.</span></div>
+        <div class="glass phase"><strong>1.2</strong><span>netstat port-replace fallback, bounded taskkill, async prewarm, Start/Build timeout flags.</span></div>
       </div>
     </section>
 
@@ -112,13 +113,13 @@
       </div>
       <div class="glass install">
         <pre><code># Windows PowerShell
-tar -xzf hermes-watchdog-windows-amd64-v1.1.0.tar.gz
+tar -xzf hermes-watchdog-windows-amd64-v1.2.0.tar.gz
 $env:HERMES_WATCHDOG_ADMIN_TOKEN = "your-secure-operator-token"
 .\hermes-watchdog.exe
 # Default listen: 127.0.0.1:9920
 
 # Linux / macOS (source — Windows supervision not available)
-tar -xzf hermes-watchdog-linux-amd64-v1.1.0.tar.gz
+tar -xzf hermes-watchdog-linux-amd64-v1.2.0.tar.gz
 bash scripts/Setup-HermesGoWatchdog.sh ./hermes-watchdog</code></pre>
         <p class="note">
           Secrets stay in env vars. Never commit tokens or auth keys.

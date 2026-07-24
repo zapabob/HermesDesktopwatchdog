@@ -135,6 +135,7 @@ func main() {
 	wd := NewWatchdog(cfg, logger)
 
 	if *once {
+		// Single-shot: prewarm synchronously so EnsureHealthy finishes before exit.
 		wd.PrewarmBackend()
 		wd.RunCycle()
 		logger.Infof("watchdog once complete")
@@ -150,7 +151,8 @@ func main() {
 		}
 	}
 
-	// Control plane before Prewarm so operators can observe during long serve startup.
+	// Start control plane + probe loop before prewarm so BuildIfMissing/serve
+	// cold-start cannot block HTTP readiness or mutual monitoring for minutes.
 	if !*noHTTP {
 		srv := NewHTTPServer(cfg, wd, shutdown)
 		handler := srv.Handler()
@@ -163,10 +165,10 @@ func main() {
 	}
 	go startIPCPipe(logger, cfg, wd, stop)
 
-	go func() {
-		wd.PrewarmBackend()
-		wd.RunLoop(stop)
-	}()
+	go wd.RunLoop(stop)
+	if cfg.PrewarmBackend {
+		go wd.PrewarmBackend()
+	}
 	<-stop
 	logger.Infof("watchdog stop")
 }

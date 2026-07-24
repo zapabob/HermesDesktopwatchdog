@@ -1,28 +1,28 @@
 {
-  "version": "v1.1.0",
-  "algorithm": "SHA256",
-  "sha256": "4b13a16a36c241dd62cfb268d10377af02486911cb6082b30446434612856aaf",
-  "asset": "hermes-watchdog-windows-amd64-v1.1.0.tar.gz",
+  "version": "v1.2.0",
+  "generated": "2026-07-24",
+  "sha256": "d43187cf7ef642c42ab679fd74b6bbc6cbbb3bf5b9ef24b803ddcda4fbe3e512",
+  "asset": "hermes-watchdog-windows-amd64-v1.2.0.tar.gz",
   "assets": {
     "windows": {
-      "asset": "hermes-watchdog-windows-amd64-v1.1.0.tar.gz",
-      "sha256": "4b13a16a36c241dd62cfb268d10377af02486911cb6082b30446434612856aaf"
+      "asset": "hermes-watchdog-windows-amd64-v1.2.0.tar.gz",
+      "sha256": "d43187cf7ef642c42ab679fd74b6bbc6cbbb3bf5b9ef24b803ddcda4fbe3e512"
     },
     "linux": {
-      "asset": "hermes-watchdog-linux-amd64-v1.1.0.tar.gz",
-      "sha256": "f4b4b8f36aa2adac81f4d75a5f79f1b28bb1257b0fc18498802eb26e4e048c8c"
+      "asset": "hermes-watchdog-linux-amd64-v1.2.0.tar.gz",
+      "sha256": "8b3fa0ab4bfad36246fa6ae91af5e11fd26b1698de82b27add5ac85d02eebf0a"
     },
     "darwin_amd64": {
-      "asset": "hermes-watchdog-darwin-amd64-v1.1.0.tar.gz",
-      "sha256": "3e0b0d65cbd4adf9b29f895e6bacf0b0b3607687f5ddc6b7d783f17b86ed564e"
+      "asset": "hermes-watchdog-darwin-amd64-v1.2.0.tar.gz",
+      "sha256": "77ed4dc6c8c8b5b3745fa113307506ceadbf99e796e532ba8a1c771298da4ef1"
     },
     "darwin_arm64": {
-      "asset": "hermes-watchdog-darwin-arm64-v1.1.0.tar.gz",
-      "sha256": "af3d5c69fd0d7118b20308e7083f36180769048b16ffea0065098505999580aa"
+      "asset": "hermes-watchdog-darwin-arm64-v1.2.0.tar.gz",
+      "sha256": "f1a767035900a3baf73f61c6472081ce84b278f9401f9631f6d6456ffd17ed4c"
     },
     "src": {
-      "asset": "hermes-watchdog-src-v1.1.0.tar.gz",
-      "sha256": "86c778fa734ad62a0ef45e23d74c136b49b5ed9aa53d84ae14d5be892ef144f3"
+      "asset": "hermes-watchdog-src-v1.2.0.tar.gz",
+      "sha256": "c0b7f6768f7289490350d473190b4860bd6c9a3ed34db2171fcf423076f9947d"
     }
   }
 }
