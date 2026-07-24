@@ -149,12 +149,14 @@ func buildServeCommand(cfg Config) (*exec.Cmd, string, int, error) {
 	if webDist == "" {
 		webDist = resolveWebDist(cfg.HermesRoot)
 	}
+	// --skip-build: avoid npm/web build hangs on cold start (ported from hermes-agent watchdog-go).
 	cmd := exec.Command(
 		python,
 		"-m", "hermes_cli.main",
 		"serve",
 		"--host", "127.0.0.1",
 		"--port", fmt.Sprintf("%d", port),
+		"--skip-build",
 	)
 	cmd.Dir = workDir
 	cmd.Env = append(os.Environ(),
@@ -271,65 +273,97 @@ func (bm *BackendManager) EnsureHealthy() (*backendInfo, error) {
 		return nil, fmt.Errorf("hermes root not configured")
 	}
 	if existing := bm.currentHealthy(); existing != nil && existing.Health.Ready {
-		_ = bm.publishManifestLocked(existing.Port, int(existing.PID))
-		return existing, nil
+		if bm.token == "" {
+			if manifest, err := bm.readManifest(); err == nil && manifest.Token != "" {
+				bm.token = manifest.Token
+			}
+		}
+		// /api/status can be public while gated APIs still expect the session token.
+		if bm.token != "" && testBackendAuth(existing.Port, bm.token) {
+			bm.mu.Lock()
+			_ = bm.publishManifestLocked(existing.Port, int(existing.PID))
+			bm.mu.Unlock()
+			return existing, nil
+		}
+		bm.logger.Infof("in-memory backend auth drift on port %d; replacing", existing.Port)
+		bm.mu.Lock()
+		bm.stopLocked()
+		bm.mu.Unlock()
+		_ = stopListenersOnPort(existing.Port, bm.logger)
 	}
 
 	bm.mu.Lock()
-	defer bm.mu.Unlock()
-
 	if bm.cmd != nil && bm.port > 0 && processAlive(bm.pid) && quickBackendReady(bm.port) {
-		info := &backendInfo{PID: uint32(bm.pid), Port: bm.port, Cmd: "watchdog-managed serve"}
-		_ = bm.publishManifestLocked(bm.port, bm.pid)
-		return info, nil
+		port, token := bm.port, bm.token
+		bm.mu.Unlock()
+		if token != "" && testBackendAuth(port, token) {
+			bm.mu.Lock()
+			info := &backendInfo{PID: uint32(bm.pid), Port: bm.port, Cmd: "watchdog-managed serve"}
+			_ = bm.publishManifestLocked(bm.port, bm.pid)
+			bm.mu.Unlock()
+			return info, nil
+		}
+		bm.mu.Lock()
 	}
 
 	bm.stopLocked()
 
-	if port := bm.cfg.ManagedBackendPort; port <= 0 {
+	port := bm.cfg.ManagedBackendPort
+	if port <= 0 {
 		port = DefaultManagedBackendPort
-	} else if isReservedOpsPort(port) {
+	}
+	if isReservedOpsPort(port) {
 		bm.clearManifest()
+		bm.mu.Unlock()
 		return nil, fmt.Errorf("managed backend port %d is reserved", port)
-	} else if quickBackendReady(port) {
+	}
+	if quickBackendReady(port) {
 		bm.port = port
-		var manifestPID int
 		if manifest, err := bm.readManifest(); err == nil {
 			if manifest.Token != "" {
 				bm.token = manifest.Token
 			}
 			if manifest.PID > 0 && processAlive(manifest.PID) {
-				manifestPID = manifest.PID
-				bm.pid = manifestPID
+				bm.pid = manifest.PID
 			}
 		}
-		if bm.token == "" {
-			token, terr := generateSessionToken()
-			if terr != nil {
-				return nil, terr
-			}
-			bm.token = token
+		reuseToken, reusePID := bm.token, bm.pid
+		bm.mu.Unlock()
+		// Only reuse when token unlocks gated APIs (avoids Desktop 401 on drifted token).
+		if reuseToken != "" && testBackendAuth(port, reuseToken) {
+			bm.mu.Lock()
+			_ = bm.publishManifestLocked(port, reusePID)
+			bm.mu.Unlock()
+			bm.logger.Infof("reusing healthy managed backend on port %d (auth ok)", port)
+			return &backendInfo{PID: uint32(reusePID), Port: port, Cmd: "existing serve on managed port"}, nil
 		}
-		_ = bm.publishManifestLocked(port, bm.pid)
-		bm.logger.Infof("reusing healthy managed backend on port %d", port)
-		return &backendInfo{PID: uint32(bm.pid), Port: port, Cmd: "existing serve on managed port"}, nil
+		bm.logger.Infof("managed port %d is up but session token drifted; replacing occupant", port)
+		_ = stopListenersOnPort(port, bm.logger)
+		time.Sleep(1 * time.Second)
+		bm.mu.Lock()
+		bm.port = 0
+		bm.pid = 0
+		bm.token = ""
 	}
 
 	cmd, token, port, err := buildServeCommand(bm.cfg)
 	if err != nil {
 		bm.clearManifest()
+		bm.mu.Unlock()
 		return nil, err
 	}
 	hideWindowsProcess(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		bm.mu.Unlock()
 		return nil, err
 	}
 	cmd.Stderr = io.Discard
 
 	if err := cmd.Start(); err != nil {
 		bm.clearManifest()
+		bm.mu.Unlock()
 		return nil, err
 	}
 	go io.Copy(io.Discard, stdout)
@@ -350,36 +384,69 @@ func (bm *BackendManager) EnsureHealthy() (*backendInfo, error) {
 			bm.logger.Infof("job object assigned pid=%d (%s)", cmd.Process.Pid, portHoldHint(port))
 		}
 	}
+	// Release before readiness waits so /api/status JobSnapshot cannot block for minutes.
+	bm.mu.Unlock()
 
 	if err := bm.waitForReadyPort(port, time.Duration(bm.cfg.BackendStartTimeoutSec)*time.Second); err != nil {
 		if cmd.Process != nil && !processAlive(cmd.Process.Pid) {
+			bm.mu.Lock()
+			bm.cmd = cmd
+			if cmd.Process != nil {
+				bm.pid = cmd.Process.Pid
+			}
 			bm.stopLocked()
 			bm.clearManifest()
+			bm.mu.Unlock()
 			return nil, fmt.Errorf("managed backend exited before /api/status became ready")
 		}
 		// Child uvicorn may outlive the parent wrapper — keep waiting on the fixed port.
 		if err2 := bm.waitForReadyPort(port, time.Duration(bm.cfg.BackendReadyTimeoutSec)*time.Second); err2 != nil {
+			bm.mu.Lock()
+			bm.cmd = cmd
+			if cmd.Process != nil {
+				bm.pid = cmd.Process.Pid
+			}
 			bm.stopLocked()
 			bm.clearManifest()
+			bm.mu.Unlock()
 			return nil, err2
 		}
 	}
 
-	bm.cmd = cmd
+	startedPID := 0
 	if cmd.Process != nil {
-		bm.pid = cmd.Process.Pid
-	} else {
-		bm.pid = 0
+		startedPID = cmd.Process.Pid
 	}
+
+	// Refuse to publish a token that does not authenticate (squatter / drift race).
+	if !testBackendAuth(port, token) {
+		bm.logger.Infof("managed backend status-ready but auth failed on port %d; refusing drifted manifest", port)
+		bm.mu.Lock()
+		bm.cmd = cmd
+		bm.pid = startedPID
+		bm.port = port
+		bm.token = token
+		bm.stopLocked()
+		bm.clearManifest()
+		bm.mu.Unlock()
+		_ = stopListenersOnPort(port, bm.logger)
+		return nil, fmt.Errorf("managed backend on port %d failed session-token auth", port)
+	}
+
+	bm.mu.Lock()
+	bm.cmd = cmd
+	bm.pid = startedPID
 	bm.port = port
 	bm.token = token
-
 	if err := bm.publishManifestLocked(port, bm.pid); err != nil {
 		bm.logger.Infof("manifest write failed: %v", err)
 	}
+	jobActive := bm.job != nil && bm.job.Active()
+	out := &backendInfo{PID: uint32(bm.pid), Port: port, Cmd: "watchdog-managed serve"}
+	bm.mu.Unlock()
 
-	bm.logger.Infof("managed backend ready pid=%d port=%d job=%v", bm.pid, bm.port, bm.job != nil && bm.job.Active())
-	return &backendInfo{PID: uint32(bm.pid), Port: port, Cmd: "watchdog-managed serve"}, nil
+	bm.logger.Infof("managed backend ready pid=%d port=%d job=%v", out.PID, out.Port, jobActive)
+	return out, nil
 }
 
 func (bm *BackendManager) publishManifestLocked(port, pid int) error {

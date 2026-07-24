@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Hermes Go Watchdog</title>
-  <meta name="description" content="Operator-only Windows Go watchdog that keeps Hermes Desktop and hermes serve alive. Download the Windows amd64 release tar.gz." />
+  <meta name="description" content="Operator-only Windows-first Go watchdog. Download Windows binary or Linux/macOS source packages from GitHub Releases." />
   <meta name="theme-color" content="#00050A" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -14,7 +14,7 @@
 <body>
   <div class="wrap">
     <header class="nav">
-      <div class="nav-brand">Hermes · Watchdog</div>
+      <div class="nav-brand">Hermes · Watchdog <span class="ver-badge" id="ver-badge">v1.1.0</span></div>
       <nav class="nav-links" aria-label="Primary">
         <a href="#architecture">Architecture</a>
         <a href="#phases">Phases</a>
@@ -25,28 +25,29 @@
 
     <section class="hero" aria-label="Hero">
       <div class="hero-plane" aria-hidden="true">
-        <img src="assets/architecture-diagram.png" alt="" width="1600" height="900" />
+        <img src="assets/architecture-diagram-source.jpg" alt="" width="1600" height="900" />
       </div>
       <div class="hero-content">
         <p class="brand-mark">Hermes Go Watchdog</p>
         <h1>Mutual supervision for Desktop and Serve — operator-only, loopback-first.</h1>
         <p class="hero-lead">
-          A standalone Windows Go process that keeps Hermes Desktop and
+          A standalone Windows-first Go process that keeps Hermes Desktop and
           <code>hermes serve</code> alive with health checks, warm-start, Job Objects,
           and update suppress — not a plugin, MCP, or skill.
         </p>
-        <div class="cta-row">
-          <a class="btn btn-primary" id="download-btn"
-             href="https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.0.0/hermes-watchdog-windows-amd64-v1.0.0.tar.gz">
-            Download tar.gz
-          </a>
-          <a class="btn btn-ghost" href="https://github.com/zapabob/HermesDesktopwatchdog/releases/tag/v1.0.0" rel="noopener">
-            Release notes
-          </a>
+        <div class="cta-row" id="cta-row">
+          <a class="btn btn-primary" id="dl-windows" href="#">Download Windows</a>
+          <a class="btn btn-ghost" id="dl-linux" href="#">Linux src</a>
+          <a class="btn btn-ghost" id="dl-darwin" href="#">macOS src</a>
+          <a class="btn btn-ghost" id="release-notes" href="#" rel="noopener">Release notes</a>
         </div>
         <p class="meta-line">
-          Asset <code id="asset-name">hermes-watchdog-windows-amd64-v1.0.0.tar.gz</code>
+          <span id="asset-label">Windows asset</span>
+          <code id="asset-name">…</code>
           · SHA256 <code id="asset-sha">loading…</code>
+        </p>
+        <p class="meta-line muted">
+          Linux/macOS packages are <strong>source (+ stub binary)</strong> — full Desktop supervision is Windows-only.
         </p>
       </div>
     </section>
@@ -58,7 +59,7 @@
       </div>
       <figure class="glass arch-frame">
         <img
-          src="assets/architecture-diagram.png"
+          src="assets/architecture-diagram-source.jpg"
           alt="Hermes Go Watchdog architecture diagram: Desktop client, Serve backend, Tailnet enclave, mutual supervision loop"
           width="1400"
           height="900"
@@ -90,8 +91,8 @@
 
     <section id="phases">
       <div class="section-head">
-        <h2>Shipped phases P1–P6</h2>
-        <p>Lifecycle manager path from state machine through update suppress.</p>
+        <h2>Shipped phases P1–P6 + v1.1.0</h2>
+        <p>Lifecycle manager path from state machine through update suppress, plus auth-drift hardening.</p>
       </div>
       <div class="phase-list">
         <div class="glass phase"><strong>P1</strong><span>ServiceState machine + crash-loop RestartPolicy — watchdog is sole restart authority.</span></div>
@@ -100,20 +101,25 @@
         <div class="glass phase"><strong>P4</strong><span>Warm-start sequencer (warm_restart) — see WARM-START-CONTRACT.</span></div>
         <div class="glass phase"><strong>P5</strong><span>Windows Job Object for managed backend; renderer anomaly policy stub.</span></div>
         <div class="glass phase"><strong>P6</strong><span>Update suppress via env, update.lock, and POST /api/v1/update-suppress.</span></div>
+        <div class="glass phase"><strong>1.1</strong><span>serve --skip-build, session-token auth drift replace, multi-platform source packages.</span></div>
       </div>
     </section>
 
     <section id="install">
       <div class="section-head">
         <h2>Install</h2>
-        <p>Unpack the release archive, set an admin token, then start with the helper script from source — or run the exe directly.</p>
+        <p>Windows: unpack the exe archive. Linux/macOS: unpack source and run Setup scripts (stubs only).</p>
       </div>
       <div class="glass install">
-        <pre><code># PowerShell
-tar -xzf hermes-watchdog-windows-amd64-v1.0.0.tar.gz
+        <pre><code># Windows PowerShell
+tar -xzf hermes-watchdog-windows-amd64-v1.1.0.tar.gz
 $env:HERMES_WATCHDOG_ADMIN_TOKEN = "your-secure-operator-token"
 .\hermes-watchdog.exe
-# Default listen: 127.0.0.1:9920</code></pre>
+# Default listen: 127.0.0.1:9920
+
+# Linux / macOS (source — Windows supervision not available)
+tar -xzf hermes-watchdog-linux-amd64-v1.1.0.tar.gz
+bash scripts/Setup-HermesGoWatchdog.sh ./hermes-watchdog</code></pre>
         <p class="note">
           Secrets stay in env vars. Never commit tokens or auth keys.
           Full operator notes live in the repo under <code>_docs/OPERATOR.md</code>.
@@ -122,7 +128,7 @@ $env:HERMES_WATCHDOG_ADMIN_TOKEN = "your-secure-operator-token"
     </section>
 
     <footer class="footer">
-      <div>MIT · Operator-only Windows tool · Not a Hermes plugin</div>
+      <div>MIT · Operator-only Windows-first tool · Not a Hermes plugin</div>
       <div>
         <a href="https://github.com/zapabob/HermesDesktopwatchdog" rel="noopener">Repository</a>
         ·

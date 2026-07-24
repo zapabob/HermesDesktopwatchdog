@@ -1,4 +1,4 @@
-module github.com/nousresearch/hermes-agent/scripts/windows/watchdog-go
+module github.com/zapabob/HermesDesktopwatchdog
 
 go 1.25.0
 

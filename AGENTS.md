@@ -1,6 +1,8 @@
 # HermesDesktopwatchdog — Agent Instructions
 
 You are in the **standalone** Go watchdog repository (`zapabob/HermesDesktopwatchdog`).
+This is the **canonical** home for the Go watchdog formerly at `hermes-agent/scripts/windows/watchdog-go`.
+Do not treat hermes-agent as the source of truth for this binary.
 
 ## What this is
 
@@ -35,3 +37,18 @@ It is **not** part of the Hermes agent tool surface.
 ```powershell
 go test ./... -count=1
 ```
+
+## Learned User Preferences
+
+- Keep all product changes in this watchdog repo only; do not modify hermes-agent, the Desktop app, or sibling Hermes repos—document Hermes-facing contracts here instead.
+- Restart authority must stay asymmetric: Watchdog alone may kill/restart Desktop or Backend; Desktop/Backend only report anomalies.
+- Do not treat process-alive as healthy; keep liveness, readiness/deep health, and warm-start as separate concerns, with an explicit `ServiceState` machine (not bools).
+- After building, prefer ForceRestart hot-swap of the running watchdog and verify `/api/status` rather than leaving an old binary running.
+- Keep README skimable in about 30 seconds; put detailed architecture, ADR, and contracts under `_docs/`.
+
+## Learned Workspace Facts
+
+- Go module path is `github.com/zapabob/HermesDesktopwatchdog` (canonical standalone home for the former `hermes-agent/scripts/windows/watchdog-go` sources).
+- Lifecycle design baseline and contracts live under `_docs/` (`ADR-2026-07-21_hermes-watchdog-lifecycle-manager.md`, `ARCHITECTURE.md`, `WARM-START-CONTRACT.md`, `IPC-CONTRACT-P3.md`, `OPERATOR.md`).
+- `third_party/gorilla-csrf` is a local `replace` for `github.com/gorilla/csrf` (Filippo drop-in for CVE-2025-47909); do not remove without an equivalent remediation.
+- Update-in-progress suppress is gated by `HERMES_WATCHDOG_UPDATE_IN_PROGRESS`, `%LOCALAPPDATA%\HermesWatchdog\update.lock`, and/or the admin update-suppress API.

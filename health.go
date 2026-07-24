@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -108,4 +109,24 @@ func quickBackendReady(port int) bool {
 func testBackendLive(port int) bool {
 	h := probeBackendHealth(port, false, 0, time.Now())
 	return h.Live
+}
+
+// testBackendAuth verifies the session token unlocks a gated API.
+// /api/status is often public, so LISTEN+status-OK can still mean token drift.
+func testBackendAuth(port int, token string) bool {
+	if port <= 0 || strings.TrimSpace(token) == "" {
+		return false
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/api/sessions", port), nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("X-Hermes-Session-Token", token)
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }

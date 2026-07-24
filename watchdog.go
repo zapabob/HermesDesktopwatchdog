@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
 	"sync"
 	"time"
 )
@@ -240,7 +238,6 @@ func (w *Watchdog) findAnyHealthyBackend() *backendInfo {
 
 func (w *Watchdog) State() WatchdogState {
 	w.mu.RLock()
-	defer w.mu.RUnlock()
 	st := w.lastState
 	st.WatchdogPID = os.Getpid()
 	st.Paused = w.paused
@@ -273,11 +270,14 @@ func (w *Watchdog) State() WatchdogState {
 		st.UpdateSuppress = us.Active
 		st.UpdateSuppressInfo = us
 	}
-	if w.back != nil {
-		st.JobObject = w.back.JobSnapshot()
-	}
 	if w.recovery != nil {
 		st.Recovery = w.recovery.Snapshot()
+	}
+	back := w.back
+	w.mu.RUnlock()
+	// JobSnapshot takes BackendManager.mu; never hold w.mu across it (EnsureHealthy can hold bm.mu for minutes).
+	if back != nil {
+		st.JobObject = back.JobSnapshot()
 	}
 	return st
 }
@@ -347,8 +347,6 @@ func (w *Watchdog) restartSnapshot(now time.Time) RestartTrackerSnapshot {
 }
 
 func (w *Watchdog) saveState(result cycleResult, backend *backendInfo) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	now := w.now()
 	var bPID uint32
 	var bPort int
@@ -362,9 +360,16 @@ func (w *Watchdog) saveState(result cycleResult, backend *backendInfo) {
 			if deepEvery <= 0 {
 				deepEvery = 5 * time.Minute
 			}
+			// Probe outside w.mu so /api/status RLock is not blocked on HTTP timeouts.
 			health = probeBackendHealth(bPort, true, deepEvery, now)
 		}
 	}
+	var jobSnap JobObjectSnapshot
+	if w.back != nil {
+		jobSnap = w.back.JobSnapshot()
+	}
+
+	w.mu.Lock()
 	w.lastHealth = health
 	leases := map[string]LeaseSnapshot{}
 	if w.heartbeats != nil {
@@ -401,6 +406,7 @@ func (w *Watchdog) saveState(result cycleResult, backend *backendInfo) {
 		ListenAddr:           w.cfg.ListenAddr,
 		TsnetHostname:        w.cfg.TsnetHostname,
 		TsnetEnabled:         w.cfg.EnableTsnet && w.cfg.TsAuthKey != "",
+		JobObject:            jobSnap,
 	}
 	if w.warmStart != nil {
 		w.lastState.WarmStart = w.warmStart.Snapshot()
@@ -410,17 +416,16 @@ func (w *Watchdog) saveState(result cycleResult, backend *backendInfo) {
 		w.lastState.UpdateSuppress = us.Active
 		w.lastState.UpdateSuppressInfo = us
 	}
-	if w.back != nil {
-		w.lastState.JobObject = w.back.JobSnapshot()
-	}
 	if w.recovery != nil {
 		w.lastState.Recovery = w.recovery.Snapshot()
 	}
 	raw, err := json.MarshalIndent(w.lastState, "", "  ")
+	statePath := w.cfg.StatePath
+	w.mu.Unlock()
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(w.cfg.StatePath, raw, 0o644)
+	_ = os.WriteFile(statePath, raw, 0o644)
 }
 
 func (w *Watchdog) RunCycle() cycleResult {
@@ -724,10 +729,3 @@ func acquireLock(lockPath, repoRoot string, logger *Logger) (func(), bool) {
 	return release, true
 }
 
-func processAlive(pid int) bool {
-	out, err := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/NH").Output()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(out), fmt.Sprintf("%d", pid))
-}
