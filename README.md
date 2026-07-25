@@ -9,11 +9,11 @@ Operator-only process that keeps Hermes Desktop (`Hermes.exe`) and managed `herm
 ## Site & download
 
 - **Pages:** https://zapabob.github.io/HermesDesktopwatchdog/
-- **Release v1.2.0:**
-  - [Windows amd64 (exe)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.2.0/hermes-watchdog-windows-amd64-v1.2.0.tar.gz)
-  - [Linux amd64 (source + stubs)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.2.0/hermes-watchdog-linux-amd64-v1.2.0.tar.gz)
-  - [macOS arm64 (source + stubs)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.2.0/hermes-watchdog-darwin-arm64-v1.2.0.tar.gz)
-  - [Full source](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.2.0/hermes-watchdog-src-v1.2.0.tar.gz)
+- **Release v1.3.0:**
+  - [Windows amd64 (exe)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.3.0/hermes-watchdog-windows-amd64-v1.3.0.tar.gz)
+  - [Linux amd64 (source + stubs)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.3.0/hermes-watchdog-linux-amd64-v1.3.0.tar.gz)
+  - [macOS arm64 (source + stubs)](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.3.0/hermes-watchdog-darwin-arm64-v1.3.0.tar.gz)
+  - [Full source](https://github.com/zapabob/HermesDesktopwatchdog/releases/download/v1.3.0/hermes-watchdog-src-v1.3.0.tar.gz)
 
 Primary runtime is **Windows**. Linux/macOS archives ship source and stub builds for compile/smoke only — not full Desktop supervision.
 
@@ -40,6 +40,17 @@ Binary → `dist\hermes-watchdog.exe` (gitignored). Listen → `127.0.0.1:9920`.
 | P6 | Update suppress (env / `update.lock` / admin API) |
 
 Plus migrations from hermes-agent watchdog-go: `serve --skip-build`, session-token auth drift detection & port replace, netstat listener fallback, bounded `taskkill`, async prewarm, and Start/Build timeout flags.
+
+### v1.3.0 — session continuity
+
+| Change | Why |
+|--------|-----|
+| Session token reused across managed serve restarts | A live Desktop keeps the launch-time `HERMES_DESKTOP_REMOTE_TOKEN`; re-minting on every backend flap made gated APIs 401 until relaunch |
+| Kill-and-confirm port clear before replacement serve | A replacement racing a wedged occupant produced token-drift loops |
+| `netstat` bounded by timeout | An unbounded enumeration could stall the whole probe loop |
+| Orphan reap skipped while the managed port is healthy | Tree-killing a non-listening wrapper took its listening child down (Desktop ECONNRESET → relaunch loop) |
+| `desktop-backend.json` accepts `url` alias and numeric `updatedAt` | Desktop and operator tooling also write this file; a strict schema made it unreadable |
+| Ensure sequence serialized on its own mutex | Keeps `/api/status` responsive during a multi-minute cold start |
 
 ## Safety
 

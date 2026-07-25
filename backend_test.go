@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseReadyPortLine(t *testing.T) {
@@ -41,7 +42,7 @@ func TestBuildServeCommandIncludesSkipBuild(t *testing.T) {
 		HermesHome:         dir,
 		ManagedBackendPort: DefaultManagedBackendPort,
 	}
-	cmd, token, port, err := buildServeCommand(cfg)
+	cmd, token, port, err := buildServeCommand(cfg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +52,76 @@ func TestBuildServeCommandIncludesSkipBuild(t *testing.T) {
 	joined := strings.Join(cmd.Args, " ")
 	if !strings.Contains(joined, "serve") || !strings.Contains(joined, "--skip-build") {
 		t.Fatalf("expected serve --skip-build in args, got %v", cmd.Args)
+	}
+}
+
+func TestBuildServeCommandReusesPreferredToken(t *testing.T) {
+	dir := t.TempDir()
+	venvPy := filepath.Join(dir, ".venv", "Scripts")
+	if err := os.MkdirAll(venvPy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(venvPy, "python.exe"), []byte("stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{
+		HermesRoot:         dir,
+		HermesHome:         dir,
+		ManagedBackendPort: DefaultManagedBackendPort,
+	}
+	cmd, token, _, err := buildServeCommand(cfg, "stable-session-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "stable-session-token" {
+		t.Fatalf("expected preferred token reuse, got %q", token)
+	}
+	envJoined := strings.Join(cmd.Env, ";")
+	if !strings.Contains(envJoined, "HERMES_DASHBOARD_SESSION_TOKEN=stable-session-token") {
+		t.Fatalf("preferred token missing from serve env: %q", envJoined)
+	}
+}
+
+// stopLocked must keep the session token: Desktop still holds it via
+// HERMES_DESKTOP_REMOTE_TOKEN, so re-minting on every flap causes 401 drift.
+func TestStopLockedKeepsSessionToken(t *testing.T) {
+	dir := t.TempDir()
+	bm := NewBackendManager(Config{DataDir: dir}, NewLogger(filepath.Join(dir, "t.log")))
+	bm.mu.Lock()
+	bm.token = "keep-me"
+	bm.port = 9118
+	bm.stopLocked()
+	token, port := bm.token, bm.port
+	bm.mu.Unlock()
+	if token != "keep-me" {
+		t.Fatalf("expected token retained after stopLocked, got %q", token)
+	}
+	if port != 0 {
+		t.Fatalf("expected port cleared after stopLocked, got %d", port)
+	}
+}
+
+func TestWaitManagedPortClearedEmptyPort(t *testing.T) {
+	if !waitManagedPortCleared(0, time.Second, nil) {
+		t.Fatal("port 0 should be treated as cleared")
+	}
+}
+
+// Desktop and operator tooling also write desktop-backend.json, using the legacy
+// "url" key and a unix-ms "updatedAt". Those must not make the manifest unreadable.
+func TestReadManifestToleratesNumericUpdatedAtAndURLAlias(t *testing.T) {
+	dir := t.TempDir()
+	bm := NewBackendManager(Config{DataDir: dir}, NewLogger(filepath.Join(dir, "t.log")))
+	raw := []byte(`{"url":"http://127.0.0.1:9118","token":"tok","port":9118,"updatedAt":1784904830048}`)
+	if err := os.WriteFile(bm.ManifestPath(), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := bm.readManifest()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.Token != "tok" || got.BaseURL != "http://127.0.0.1:9118" || got.Port != 9118 {
+		t.Fatalf("unexpected: %+v", got)
 	}
 }
 

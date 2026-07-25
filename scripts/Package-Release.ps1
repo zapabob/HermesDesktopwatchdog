@@ -1,6 +1,6 @@
 # Package multi-platform release archives for GitHub Releases (v1.2.0+).
 param(
-    [string]$Version = "v1.2.0"
+    [string]$Version = "v1.3.0"
 )
 
 $ErrorActionPreference = "Stop"

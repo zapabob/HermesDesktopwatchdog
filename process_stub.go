@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // Minimal stubs so `go test` / `go build` succeed on Linux/macOS source trees.
@@ -35,6 +36,23 @@ func stopListenersOnPort(port int, logger *Logger) int {
 		logger.Infof("stopListenersOnPort(%d): not supported on this OS", port)
 	}
 	return 0
+}
+
+func listeningPIDsOnPort(port int) []uint32 { return nil }
+
+func listeningPIDsOnPortTimeout(port int, timeout time.Duration) []uint32 { return nil }
+
+// waitManagedPortCleared cannot kill listeners here, so it only reports whether the
+// port already looks free. Callers treat false as "occupant still present".
+func waitManagedPortCleared(port int, timeout time.Duration, logger *Logger) bool {
+	_ = timeout
+	if port <= 0 {
+		return true
+	}
+	if logger != nil {
+		logger.Infof("waitManagedPortCleared(%d): kill unsupported on this OS", port)
+	}
+	return !testBackendLive(port)
 }
 
 func findHealthyDesktopBackend() *backendInfo { return nil }

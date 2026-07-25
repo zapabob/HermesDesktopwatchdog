@@ -71,13 +71,44 @@ func getDesktopBackendCandidates() ([]win32Process, error) {
 	}
 }
 
+// netstatTCPOutput runs `netstat -ano -p tcp` under a hard deadline. An unbounded
+// netstat can wedge alongside a stuck TCP stack and stall the whole probe loop.
+func netstatTCPOutput(timeout time.Duration) ([]byte, error) {
+	if timeout <= 0 {
+		timeout = netstatDefaultTimeout
+	}
+	cmd := exec.Command("netstat", "-ano", "-p", "tcp")
+	type result struct {
+		b   []byte
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		b, err := cmd.CombinedOutput()
+		ch <- result{b, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.b, r.err
+	case <-time.After(timeout):
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		return nil, fmt.Errorf("netstat timed out after %s", timeout)
+	}
+}
+
 // listeningPIDsOnPort returns PIDs in LISTENING state on LocalPort==port (netstat).
 // Used when WMI candidate scan fails or times out while a wedged occupant still holds the port.
 func listeningPIDsOnPort(port int) []uint32 {
+	return listeningPIDsOnPortTimeout(port, netstatDefaultTimeout)
+}
+
+func listeningPIDsOnPortTimeout(port int, timeout time.Duration) []uint32 {
 	if port <= 0 {
 		return nil
 	}
-	out, err := exec.Command("netstat", "-ano", "-p", "tcp").Output()
+	out, err := netstatTCPOutput(timeout)
 	if err != nil {
 		return nil
 	}
@@ -117,7 +148,7 @@ func listeningPIDsOnPort(port int) []uint32 {
 }
 
 func getListeningPorts(pid uint32) ([]int, error) {
-	out, err := exec.Command("netstat", "-ano", "-p", "tcp").Output()
+	out, err := netstatTCPOutput(netstatDefaultTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -198,6 +229,35 @@ func stopListenersOnPort(port int, logger *Logger) int {
 	return n
 }
 
+// waitManagedPortCleared kills listeners and waits until neither /api/status nor a
+// LISTENING socket remains, so a replacement serve is not racing a wedged occupant.
+// Racing produces token-drift loops: the new serve fails to bind, the old one keeps
+// answering with the previous token, and Desktop gets 401 on every gated API.
+func waitManagedPortCleared(port int, timeout time.Duration, logger *Logger) bool {
+	if port <= 0 {
+		return true
+	}
+	if timeout <= 0 {
+		timeout = managedPortClearTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		_ = stopListenersOnPort(port, logger)
+		time.Sleep(400 * time.Millisecond)
+		if testBackendLive(port) {
+			continue
+		}
+		if len(listeningPIDsOnPort(port)) == 0 {
+			return true
+		}
+	}
+	cleared := !testBackendLive(port) && len(listeningPIDsOnPort(port)) == 0
+	if !cleared && logger != nil {
+		logger.Infof("managed port %d still occupied after clear wait (%s)", port, timeout)
+	}
+	return cleared
+}
+
 func findHealthyDesktopBackend() *backendInfo {
 	candidates, err := getDesktopBackendCandidates()
 	if err != nil {
@@ -272,15 +332,27 @@ func stopOrphanDesktopBackends(logger *Logger, cfg Config, skipPIDs ...uint32) i
 	if err == nil && len(desktop) > 0 {
 		return 0
 	}
-	skip := make(map[uint32]struct{}, len(skipPIDs))
+	skipPort := cfg.ManagedBackendPort
+	if skipPort <= 0 {
+		skipPort = DefaultManagedBackendPort
+	}
+	// Candidates routinely include a non-listening python/hermes wrapper whose child
+	// holds the managed port. taskkill /T on the wrapper takes the listener down too,
+	// which shows up as Desktop ECONNRESET → Desktop DOWN → relaunch loop.
+	if testBackendLive(skipPort) {
+		if logger != nil {
+			logger.Infof("skip orphan reap; managed port %d is healthy", skipPort)
+		}
+		return 0
+	}
+	skip := make(map[uint32]struct{}, len(skipPIDs)+4)
 	for _, pid := range skipPIDs {
 		if pid > 0 {
 			skip[pid] = struct{}{}
 		}
 	}
-	skipPort := cfg.ManagedBackendPort
-	if skipPort <= 0 {
-		skipPort = DefaultManagedBackendPort
+	for _, pid := range listeningPIDsOnPort(skipPort) {
+		skip[pid] = struct{}{}
 	}
 	candidates, err := getDesktopBackendCandidates()
 	if err != nil {

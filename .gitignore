@@ -12,6 +12,11 @@
 *.out
 coverage.out
 
+# Local operator scratch (test logs, captured status, watchdog stdio)
+/_*.log
+/_*.txt
+/_status.json
+
 # IDE / OS
 .idea/
 .vscode/

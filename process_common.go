@@ -1,6 +1,19 @@
 package main
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
+
+const (
+	// netstatDefaultTimeout bounds background port enumeration.
+	netstatDefaultTimeout = 8 * time.Second
+	// netstatQuickTimeout is for paths that may run while a caller holds a lock
+	// observed by /api/status; a slow answer must degrade, not block the API.
+	netstatQuickTimeout = 2 * time.Second
+	// managedPortClearTimeout bounds the kill-and-confirm loop before a replacement serve.
+	managedPortClearTimeout = 15 * time.Second
+)
 
 // backendInfo is a snapshot of a discovered or managed hermes serve instance.
 type backendInfo struct {
