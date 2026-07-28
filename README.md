@@ -27,6 +27,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Start-HermesGoWatchd
 ```
 
 Binary → `dist\hermes-watchdog.exe` (gitignored). Listen → `127.0.0.1:9920`.
+Managed `hermes serve` → **`127.0.0.1:9119`** (post-merge Desktop contract; not 9118).
+Publish `desktop-backend.json` with **both** `baseUrl`/`url` and `token`, or clear remotes on Desktop launch — never URL-only.
 
 ## What shipped (P1–P6)
 

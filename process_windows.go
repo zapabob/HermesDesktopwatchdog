@@ -418,7 +418,7 @@ func startPackagedDesktop(cfg Config, logger *Logger, bm *BackendManager) bool {
 	cmd := exec.Command(cfg.PackagedExe)
 	cmd.Dir = work
 	manifest := readLaunchManifest(cfg, bm)
-	cmd.Env = append(os.Environ(), desktopLaunchEnv(cfg, manifest)...)
+	cmd.Env = append(stripInheritedDesktopRemotes(os.Environ()), desktopLaunchEnv(cfg, manifest)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if err := cmd.Start(); err != nil {
 		logger.Infof("failed to launch Desktop: %v", err)
@@ -442,7 +442,7 @@ func restartPackagedDesktop(cfg Config, logger *Logger, bm *BackendManager) bool
 			skipPID = managed.PID
 		}
 	}
-	// Desktop is gone — reap leftover ephemeral serves (managed :9118 is skipped).
+	// Desktop is gone — reap leftover ephemeral serves (managed :9119 is skipped).
 	stopOrphanDesktopBackends(logger, cfg, skipPID)
 	time.Sleep(1 * time.Second)
 	if bm != nil {

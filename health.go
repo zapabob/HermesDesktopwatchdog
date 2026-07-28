@@ -113,16 +113,21 @@ func testBackendLive(port int) bool {
 
 // testBackendAuth verifies the session token unlocks a gated API.
 // /api/status is often public, so LISTEN+status-OK can still mean token drift.
+// Matches Desktop electron/watchdog-backend.ts: Authorization Bearer +
+// X-Hermes-Session-Token (post-7/20 gate accepts Bearer; header-only can miss
+// some middleware paths).
 func testBackendAuth(port int, token string) bool {
 	if port <= 0 || strings.TrimSpace(token) == "" {
 		return false
 	}
+	tok := strings.TrimSpace(token)
 	client := &http.Client{Timeout: 3 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/api/sessions", port), nil)
 	if err != nil {
 		return false
 	}
-	req.Header.Set("X-Hermes-Session-Token", token)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("X-Hermes-Session-Token", tok)
 	resp, err := client.Do(req)
 	if err != nil {
 		return false

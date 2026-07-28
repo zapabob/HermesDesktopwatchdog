@@ -89,7 +89,7 @@ func TestStopLockedKeepsSessionToken(t *testing.T) {
 	bm := NewBackendManager(Config{DataDir: dir}, NewLogger(filepath.Join(dir, "t.log")))
 	bm.mu.Lock()
 	bm.token = "keep-me"
-	bm.port = 9118
+	bm.port = 9119
 	bm.stopLocked()
 	token, port := bm.token, bm.port
 	bm.mu.Unlock()
@@ -112,7 +112,7 @@ func TestWaitManagedPortClearedEmptyPort(t *testing.T) {
 func TestReadManifestToleratesNumericUpdatedAtAndURLAlias(t *testing.T) {
 	dir := t.TempDir()
 	bm := NewBackendManager(Config{DataDir: dir}, NewLogger(filepath.Join(dir, "t.log")))
-	raw := []byte(`{"url":"http://127.0.0.1:9118","token":"tok","port":9118,"updatedAt":1784904830048}`)
+	raw := []byte(`{"url":"http://127.0.0.1:9119","token":"tok","port":9119,"updatedAt":1784904830048}`)
 	if err := os.WriteFile(bm.ManifestPath(), raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestReadManifestToleratesNumericUpdatedAtAndURLAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if got.Token != "tok" || got.BaseURL != "http://127.0.0.1:9118" || got.Port != 9118 {
+	if got.Token != "tok" || got.BaseURL != "http://127.0.0.1:9119" || got.Port != 9119 {
 		t.Fatalf("unexpected: %+v", got)
 	}
 }
@@ -160,6 +160,41 @@ func TestDesktopLaunchEnvIncludesRemoteWhenManifest(t *testing.T) {
 		if !containsSubstr(joined, want) {
 			t.Fatalf("missing %q in %q", want, joined)
 		}
+	}
+}
+
+func TestDesktopLaunchEnvClearsRemoteWithoutManifest(t *testing.T) {
+	cfg := Config{HermesRoot: `C:\repo`, HermesHome: `C:\Users\u\.hermes`}
+	env := desktopLaunchEnv(cfg, nil)
+	joined := stringsJoinEnv(env)
+	if !containsSubstr(joined, "HERMES_DESKTOP_REMOTE_URL=") || !containsSubstr(joined, "HERMES_DESKTOP_REMOTE_TOKEN=") {
+		t.Fatalf("expected explicit remote clears, got %q", joined)
+	}
+	if containsSubstr(joined, "HERMES_DESKTOP_REMOTE_URL=http") {
+		t.Fatalf("unexpected remote URL value in %q", joined)
+	}
+	// Incomplete manifest (URL only) must also clear — never inject URL-without-TOKEN.
+	env2 := desktopLaunchEnv(cfg, &DesktopBackendManifest{BaseURL: "http://127.0.0.1:9119", Token: ""})
+	joined2 := stringsJoinEnv(env2)
+	if containsSubstr(joined2, "HERMES_DESKTOP_REMOTE_URL=http://127.0.0.1:9119") {
+		t.Fatalf("URL-only manifest must not inject REMOTE_URL: %q", joined2)
+	}
+}
+
+func TestStripInheritedDesktopRemotes(t *testing.T) {
+	base := []string{
+		"PATH=C:\\Windows",
+		"HERMES_DESKTOP_REMOTE_URL=http://stale:9118",
+		"HERMES_DESKTOP_REMOTE_TOKEN=old",
+		"HERMES_HOME=C:\\Users\\u\\.hermes",
+	}
+	got := stripInheritedDesktopRemotes(base)
+	joined := stringsJoinEnv(got)
+	if containsSubstr(joined, "HERMES_DESKTOP_REMOTE_URL=") || containsSubstr(joined, "HERMES_DESKTOP_REMOTE_TOKEN=") {
+		t.Fatalf("expected remotes stripped, got %q", joined)
+	}
+	if !containsSubstr(joined, "PATH=C:\\Windows") || !containsSubstr(joined, "HERMES_HOME=") {
+		t.Fatalf("expected other env preserved, got %q", joined)
 	}
 }
 

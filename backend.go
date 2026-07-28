@@ -17,8 +17,9 @@ import (
 
 const desktopBackendManifestName = "desktop-backend.json"
 
-// DefaultManagedBackendPort is outside reserved ops ports (9119 dashboard serve, 9120 dashboard UI, …).
-const DefaultManagedBackendPort = 9118
+// DefaultManagedBackendPort matches post-merge Desktop local serve expectation (:9119).
+// 9120 remains reserved for the operator dashboard UI; 9118 is legacy prewarm only.
+const DefaultManagedBackendPort = 9119
 
 var backendReadyRE = regexp.MustCompile(`^HERMES_(?:BACKEND|DASHBOARD)_READY port=(\d+)`)
 
@@ -404,6 +405,14 @@ func (bm *BackendManager) EnsureHealthy() (*backendInfo, error) {
 		// The occupant rejected our token, so it is dead to Desktop anyway: mint a fresh one.
 		bm.token = ""
 		bm.mu.Unlock()
+	} else if listeners := listeningPIDsOnPortTimeout(port, netstatQuickTimeout); len(listeners) > 0 {
+		// LISTEN-but-dead (HTTP 000 / hung accept) blocks bind and fools Job Object
+		// "port-hold" reuse into waiting forever. Force-clear before spawn.
+		bm.logger.Infof("managed port %d has LISTEN without /api/status; clearing zombie pid(s)=%v", port, listeners)
+		if !waitManagedPortCleared(port, managedPortClearTimeout, bm.logger) {
+			bm.clearManifest()
+			return nil, fmt.Errorf("managed port %d zombie LISTEN uncleared", port)
+		}
 	}
 
 	bm.mu.Lock()
@@ -586,11 +595,37 @@ func desktopLaunchEnv(cfg Config, manifest *DesktopBackendManifest) []string {
 	if webDist != "" {
 		env = append(env, "HERMES_DESKTOP_DASHBOARD_WEB_DIST="+webDist)
 	}
-	if manifest != nil && manifest.BaseURL != "" && manifest.Token != "" {
+	if manifest != nil && strings.TrimSpace(manifest.BaseURL) != "" && strings.TrimSpace(manifest.Token) != "" {
 		env = append(env,
-			"HERMES_DESKTOP_REMOTE_URL="+manifest.BaseURL,
-			"HERMES_DESKTOP_REMOTE_TOKEN="+manifest.Token,
+			"HERMES_DESKTOP_REMOTE_URL="+strings.TrimSpace(manifest.BaseURL),
+			"HERMES_DESKTOP_REMOTE_TOKEN="+strings.TrimSpace(manifest.Token),
+		)
+	} else {
+		// Explicit clear: inherited User/process remotes must not reach Desktop as
+		// URL-without-TOKEN (hard boot error) or a stale remote override.
+		env = append(env,
+			"HERMES_DESKTOP_REMOTE_URL=",
+			"HERMES_DESKTOP_REMOTE_TOKEN=",
 		)
 	}
 	return env
+}
+
+// stripInheritedDesktopRemotes drops HERMES_DESKTOP_REMOTE_* from a base env
+// block so later appends (set or clear) are unambiguous on Windows.
+func stripInheritedDesktopRemotes(base []string) []string {
+	out := make([]string, 0, len(base))
+	for _, e := range base {
+		eq := strings.IndexByte(e, '=')
+		if eq <= 0 {
+			out = append(out, e)
+			continue
+		}
+		key := strings.ToUpper(e[:eq])
+		if key == "HERMES_DESKTOP_REMOTE_URL" || key == "HERMES_DESKTOP_REMOTE_TOKEN" {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }

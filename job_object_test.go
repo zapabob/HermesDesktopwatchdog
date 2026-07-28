@@ -59,7 +59,7 @@ func TestJobObjectAssignSelf(t *testing.T) {
 }
 
 func TestPortHoldHint(t *testing.T) {
-	h := portHoldHint(9118)
+	h := portHoldHint(9119)
 	if h == "" {
 		t.Fatal("expected hint")
 	}

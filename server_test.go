@@ -91,6 +91,9 @@ func TestIsReservedOpsPort(t *testing.T) {
 	if !isReservedOpsPort(9120) || !isReservedOpsPort(8787) {
 		t.Fatal("expected 9120/8787 reserved")
 	}
+	if isReservedOpsPort(9119) {
+		t.Fatal("9119 is the managed Desktop serve port and must not be reserved")
+	}
 	if isReservedOpsPort(54321) {
 		t.Fatal("ephemeral port must not be reserved")
 	}

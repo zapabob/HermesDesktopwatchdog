@@ -24,8 +24,10 @@ type backendInfo struct {
 }
 
 // reservedOpsPorts are stack-owned listeners — never treat as Desktop's ephemeral hermes serve.
+// 9119 is the post-merge managed Desktop/serve port (matches hermes-agent watchdog-go) and must
+// NOT be reserved here — otherwise EnsureHealthy refuses -managed-backend-port=9119.
 var reservedOpsPorts = map[int]struct{}{
-	8080: {}, 8081: {}, 8646: {}, 8765: {}, 8787: {}, 9119: {}, 9120: {}, 9920: {}, 18794: {},
+	8080: {}, 8081: {}, 8646: {}, 8765: {}, 8787: {}, 9120: {}, 9920: {}, 18794: {},
 }
 
 func isReservedOpsPort(port int) bool {

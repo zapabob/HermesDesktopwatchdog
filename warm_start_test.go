@@ -32,12 +32,12 @@ func TestWarmStartSuccessPath(t *testing.T) {
 		},
 		StartBackend: func() (uint32, int, error) {
 			started = true
-			return 42, 9118, nil
+			return 42, 9119, nil
 		},
 		WaitReady: func(timeout time.Duration) error { return nil },
 		NotifyDesktop: func(port int) error {
 			notified = true
-			if port != 9118 {
+			if port != 9119 {
 				t.Fatalf("port=%d", port)
 			}
 			return nil
@@ -72,7 +72,7 @@ func TestWarmStartInterruptedNeverSuccess(t *testing.T) {
 		ActiveRuns:      func() int { return 3 }, // never drains
 		CheckpointAcked: func() bool { return false },
 		StopBackend:     func() error { return nil },
-		StartBackend:    func() (uint32, int, error) { return 7, 9118, nil },
+		StartBackend:    func() (uint32, int, error) { return 7, 9119, nil },
 		WaitReady:       func(timeout time.Duration) error { return nil },
 		NotifyDesktop:   func(port int) error { return nil },
 	})

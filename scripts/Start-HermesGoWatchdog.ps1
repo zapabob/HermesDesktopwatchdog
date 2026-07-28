@@ -1,4 +1,6 @@
 ﻿# Start Go-based Hermes Desktop<->backend watchdog (operator-only; NOT agent-reachable).
+# Managed hermes serve defaults to 127.0.0.1:9119 (post-merge Desktop contract).
+# Keep a SINGLE hermes-watchdog.exe — use -ForceRestart to replace a live instance.
 param(
     [int]$IntervalSec = 20,
     [int]$FailThreshold = 2,

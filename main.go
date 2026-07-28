@@ -33,8 +33,10 @@ func main() {
 	interval := flag.Int("interval", 20, "Watchdog probe interval seconds")
 	failThreshold := flag.Int("fail-threshold", 2, "Consecutive backend failures before Desktop last-resort restart")
 	prewarm := flag.Bool("prewarm-backend", true, "Pre-start and supervise a hermes serve for fast Desktop connect")
-	backendStartTimeout := flag.Int("backend-start-timeout", 120, "Seconds to wait for managed serve /api/status")
-	backendReadyTimeout := flag.Int("backend-ready-timeout", 45, "Extra seconds waiting for managed serve readiness")
+	// Cold Windows boots import many plugins before /api/status answers; 45s was
+	// stranding LISTEN-but-dead serves after sync. Match operator recovery budgets.
+	backendStartTimeout := flag.Int("backend-start-timeout", 300, "Seconds to wait for managed serve /api/status")
+	backendReadyTimeout := flag.Int("backend-ready-timeout", 180, "Extra seconds waiting for managed serve readiness")
 	managedPort := flag.Int("managed-backend-port", DefaultManagedBackendPort, "Fixed localhost port for watchdog-managed hermes serve")
 	maxRestarts := flag.Int("max-restarts", 5, "Max backend recovery attempts inside restart window before Failed")
 	restartWindowSec := flag.Int("restart-window-sec", 600, "Sliding window seconds for max-restarts")
