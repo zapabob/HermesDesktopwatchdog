@@ -65,21 +65,21 @@ func defaultDataDir() string {
 }
 
 func defaultPackagedExe(repoRoot string) string {
-	local := os.Getenv("LOCALAPPDATA")
-	if local != "" {
-		candidate := filepath.Join(local, "hermes", "hermes-agent", "apps", "desktop", "release", "win-unpacked", "Hermes.exe")
-		if fileExists(candidate) {
-			return candidate
-		}
-	}
+	// Prefer the explicit HermesRoot packaged build over a stale LOCALAPPDATA
+	// copy so operators do not accidentally relaunch an old Desktop install.
 	if repoRoot != "" {
 		candidate := filepath.Join(repoRoot, "apps", "desktop", "release", "win-unpacked", "Hermes.exe")
 		if fileExists(candidate) {
 			return candidate
 		}
 	}
+	local := os.Getenv("LOCALAPPDATA")
 	if local != "" {
-		return filepath.Join(local, "hermes", "hermes-agent", "apps", "desktop", "release", "win-unpacked", "Hermes.exe")
+		candidate := filepath.Join(local, "hermes", "hermes-agent", "apps", "desktop", "release", "win-unpacked", "Hermes.exe")
+		if fileExists(candidate) {
+			return candidate
+		}
+		return candidate
 	}
 	return ""
 }
