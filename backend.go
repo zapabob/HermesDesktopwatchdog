@@ -218,7 +218,31 @@ func (bm *BackendManager) writeManifest(manifest DesktopBackendManifest) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(bm.ManifestPath(), raw, 0o644)
+
+	path := bm.ManifestPath()
+	dir := filepath.Dir(path)
+	if err := ensureDir(dir); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, desktopBackendManifestName+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}()
+	if _, err := tmp.Write(raw); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// Desktop reads this file during startup. Renaming a complete candidate
+	// prevents a reader from observing partial JSON and cold-spawning a second
+	// backend while the watchdog-managed backend is already coming online.
+	return os.Rename(tmpPath, path)
 }
 
 func (bm *BackendManager) clearManifest() {

@@ -310,6 +310,19 @@ func (w *Watchdog) backendLive(info *backendInfo) bool {
 	return false
 }
 
+// desktopProbeStatus keeps a WMI failure distinct from a confirmed absence.
+// The watchdog is the restart authority, but it must never relaunch Desktop
+// merely because the operating system failed to enumerate its processes.
+func desktopProbeStatus(err error, desktopCount int) (label string, known, up bool) {
+	if err != nil {
+		return "unknown", false, false
+	}
+	if desktopCount <= 0 {
+		return "down", true, false
+	}
+	return "up", true, true
+}
+
 func (w *Watchdog) SetPaused(v bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -439,10 +452,10 @@ func (w *Watchdog) RunCycle() cycleResult {
 		if on, src, detail := w.updateGate.Active(); on {
 			w.logger.Infof("update suppress active source=%s %s — skip auto Start*/WarmRestart", src, detail)
 			desktop, derr := getDesktopProcesses()
-			desktopUp := derr == nil && len(desktop) > 0
+			desktopLabel, _, _ := desktopProbeStatus(derr, len(desktop))
 			backend := w.findAnyHealthyBackend()
 			res := cycleResult{
-				Desktop: map[bool]string{true: "up", false: "down"}[desktopUp],
+				Desktop: desktopLabel,
 				Backend: "update_suppressed",
 			}
 			if backend != nil {
@@ -463,9 +476,11 @@ func (w *Watchdog) RunCycle() cycleResult {
 
 	now := w.now()
 	desktop, derr := getDesktopProcesses()
-	desktopUp := derr == nil && len(desktop) > 0
+	desktopLabel, desktopKnown, desktopUp := desktopProbeStatus(derr, len(desktop))
 
-	if !desktopUp {
+	if !desktopKnown {
+		w.setDesktopState(StateUnknown)
+	} else if !desktopUp {
 		w.setDesktopState(StateStopped)
 	} else {
 		// ADR: Unknown/Stopped → Starting → Ready (never Unknown→Ready).
@@ -481,7 +496,7 @@ func (w *Watchdog) RunCycle() cycleResult {
 	if w.restart.Failed() {
 		w.setBackendState(StateFailed)
 		w.logger.Infof("backend recovery FAILED — auto-restart suppressed (resume to clear)")
-		res := cycleResult{Desktop: map[bool]string{true: "up", false: "down"}[desktopUp], Backend: "failed"}
+		res := cycleResult{Desktop: desktopLabel, Backend: "failed"}
 		w.saveState(res, nil)
 		return res
 	}
@@ -506,6 +521,27 @@ func (w *Watchdog) RunCycle() cycleResult {
 	backend := w.findAnyHealthyBackend()
 	if backend != nil && backend.Port > 0 && backend.Health.Source == "" {
 		backend.Health = probeBackendHealth(backend.Port, false, 0, now)
+	}
+
+	if !desktopKnown {
+		w.logger.Infof("Desktop probe unavailable: %v; leaving Desktop untouched", derr)
+		res := cycleResult{Desktop: desktopLabel, Backend: "down"}
+		if backend == nil {
+			w.setBackendState(StateUnresponsive)
+		} else {
+			res.BackendPID = backend.PID
+			res.BackendPort = backend.Port
+			switch {
+			case w.backendReady(backend):
+				w.setBackendState(StateReady)
+				res.Backend = "up"
+			case w.backendLive(backend):
+				w.setBackendState(StateDegraded)
+				res.Backend = "degraded"
+			}
+		}
+		w.saveState(res, backend)
+		return res
 	}
 
 	if !desktopUp {
@@ -728,4 +764,3 @@ func acquireLock(lockPath, repoRoot string, logger *Logger) (func(), bool) {
 	}
 	return release, true
 }
-

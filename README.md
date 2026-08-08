@@ -30,6 +30,19 @@ Binary → `dist\hermes-watchdog.exe` (gitignored). Listen → `127.0.0.1:9920`.
 Managed `hermes serve` → **`127.0.0.1:9119`** (post-merge Desktop contract; not 9118).
 Publish `desktop-backend.json` with **both** `baseUrl`/`url` and `token`, or clear remotes on Desktop launch — never URL-only.
 
+### Safe watchdog hot-swap
+
+Build a side-by-side candidate, stop only the watchdog, replace its executable,
+then require `/health` and `/api/status` before accepting it. If either probe
+fails, the retained binary is restored. Hermes Desktop and the managed backend
+are not stopped by this flow.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\Start-HermesGoWatchdog.ps1 -HotSwap -RunBuildTests
+```
+
+For a separately installed runtime, add `-RuntimeExe <live hermes-watchdog.exe>`.
+
 ## What shipped (P1–P6)
 
 | Phase | Capability |
@@ -42,6 +55,10 @@ Publish `desktop-backend.json` with **both** `baseUrl`/`url` and `token`, or cle
 | P6 | Update suppress (env / `update.lock` / admin API) |
 
 Plus migrations from hermes-agent watchdog-go: `serve --skip-build`, session-token auth drift detection & port replace, netstat listener fallback, bounded `taskkill`, async prewarm, and Start/Build timeout flags.
+
+The watchdog publishes `desktop-backend.json` by replacing a complete temporary
+file, so Desktop never reads partial JSON. A failed WMI Desktop probe is reported
+as `unknown`; it is not treated as evidence that Desktop stopped.
 
 ### v1.3.0 — session continuity
 

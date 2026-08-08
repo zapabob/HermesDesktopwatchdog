@@ -234,11 +234,26 @@ func TestBackendManagerWriteReadManifest(t *testing.T) {
 	if err := bm.publishManifestLocked(12345, 999); err != nil {
 		t.Fatal(err)
 	}
+	bm.mu.Lock()
+	bm.token = "updated"
+	bm.mu.Unlock()
+	if err := bm.publishManifestLocked(23456, 1000); err != nil {
+		t.Fatal(err)
+	}
 	got, err := bm.readManifest()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Port != 12345 || got.Token != "abc" || !got.Managed {
+	if got.Port != 23456 || got.Token != "updated" || !got.Managed {
 		t.Fatalf("unexpected manifest: %+v", got)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), ".tmp") {
+			t.Fatalf("temporary manifest file left behind: %s", entry.Name())
+		}
 	}
 }
